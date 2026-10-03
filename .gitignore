@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Downloaded dataset (MNIST is downloaded automatically)
+data/
+
+# Simulation output
+*.vcd
+*.out
+sim_*
+build/
+
+# Editor / OS files
+.vscode/
+.DS_Store

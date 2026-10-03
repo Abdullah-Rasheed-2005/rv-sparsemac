@@ -25,6 +25,8 @@ Sparse files, written by `export_sparse.py` (only nonzero weights are kept):
 | `golden_fc1_acc.hex` | raw fc1 dot products, first 10 images, no bias | 8 hex digits per line (int32) |
 | `golden_hidden.hex` | hidden values of the first 10 images | 2 hex digits per line |
 | `golden_fc2_acc.hex` | raw fc2 dot products, first 10 images, no bias | 8 hex digits per line (int32) |
+| `hidden_shift.hex` | hidden right-shift (from `params.txt`) | 2 hex digits, one line |
+| `golden_logits.hex` | golden logits of all 100 images, 10 per image | 8 hex digits per line (int32) |
 
 Negative numbers are stored in two's complement.
 

@@ -90,3 +90,16 @@ These numbers cover only the dot-product engine. Bias, ReLU, shift, memory
 loading and the control FSM are not included yet.
 
 One fc1 neuron has no nonzero weights left after pruning (count = 0).
+
+## Full inference (simulation)
+
+`hardware/rtl/sparse_mlp.v` runs the whole network (784 -> 64 -> 10) on its own:
+fc1 neurons, bias, ReLU, shift, saturate at 127, hidden RAM, fc2 neurons and argmax.
+Measured with `make sim-mlp` on the first 100 test images:
+
+- 1000 of 1000 logits match `golden_logits` bit for bit.
+- Predictions match, accuracy 98% on these 100 images.
+- 11,030 cycles per image (start to done), about 148 cycles more than the
+  dot-product engine alone (10,882), so the control FSM overhead is small.
+
+Zero pixels and zero hidden values are not skipped yet, only zero weights.

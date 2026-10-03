@@ -34,6 +34,18 @@ Expected last line:
 PASS: sparse_dot matched the golden values (640 fc1 + 100 fc2 neurons)
 ```
 
+The whole network (control FSM + sparse engine, all 100 golden images):
+
+```bash
+make sim-mlp
+```
+
+Expected last line:
+
+```
+PASS: sparse_mlp matched golden logits and predictions (100 images, 1000 logits)
+```
+
 ## Adding PicoRV32 (later)
 
 ```bash

@@ -16,7 +16,7 @@ export it to hardware, and (in progress) build the Verilog accelerator.
 | Integer-only inference + hex export + golden vectors | Done |
 | MAC unit (`hardware/rtl/mac.v`) + testbench | Done |
 | Sparse dot-product engine (skips zero weights) + testbench | Done |
-| Control FSM + full inference in simulation | Next |
+| Control FSM + full inference in simulation | Done |
 | RISC-V integration (PicoRV32 + PCPI custom instruction) | Planned |
 | Cycle benchmark: dense vs sparse | Planned |
 

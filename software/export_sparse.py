@@ -22,6 +22,11 @@ testbench can check the raw dot products (bias NOT included):
   golden_hidden.hex    hidden values, 64 per image        (2 hex digits)
   golden_fc2_acc.hex   W2 @ hidden, 10 values per image   (8 hex digits)
 
+For the whole-network testbench (tb_sparse_mlp.v) it also writes:
+
+  hidden_shift.hex     the hidden right-shift from params.txt (2 hex digits)
+  golden_logits.hex    the golden logits of all images, 10 per image (8 hex digits)
+
 Run from the repository root (after export_int8.py). Needs only numpy:
     python3 software/export_sparse.py
 """
@@ -128,5 +133,9 @@ print(f'cross-check against golden_logits.txt: OK ({N_TEST} images)')
 write_hex(MEM_DIR / 'golden_fc1_acc.hex', acc1.flatten(), 8)
 write_hex(MEM_DIR / 'golden_hidden.hex', hidden.flatten(), 2)
 write_hex(MEM_DIR / 'golden_fc2_acc.hex', acc2.flatten(), 8)
+
+# Whole-network files: the shift and the golden logits in hex form
+write_hex(MEM_DIR / 'hidden_shift.hex', [shift], 2)
+write_hex(MEM_DIR / 'golden_logits.hex', golden_logits.flatten(), 8)
 
 print(f'Export done -> {MEM_DIR}')

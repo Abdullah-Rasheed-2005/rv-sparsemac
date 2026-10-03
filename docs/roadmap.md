@@ -12,8 +12,8 @@
 ## Phase 2 - Hardware building blocks
 - [x] MAC unit: unsigned x signed, 32-bit accumulator (`mac.v`)
 - [x] Sparse dot-product engine: process only nonzero weights for one neuron
-- [ ] Control FSM: load, compute, ReLU + shift, store
-- [ ] Full fc1 + fc2 inference in simulation, matching the golden logits
+- [x] Control FSM: load, compute, ReLU + shift, store
+- [x] Full fc1 + fc2 inference in simulation, matching the golden logits
 
 ## Phase 3 - RISC-V integration
 - [ ] Clone PicoRV32 as a git submodule in `hardware/third_party/`

@@ -9,7 +9,7 @@ data/
 # Simulation output
 *.vcd
 *.out
-sim_*
+/sim_*
 build/
 
 # Editor / OS files

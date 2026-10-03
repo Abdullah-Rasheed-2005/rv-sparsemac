@@ -103,6 +103,8 @@ The trained models are already in `models/` and the hex files are already in
 `hardware/mem/`, so you can run `make verify` and `make sim-mac` without
 training anything.
 
+Note: `train_baseline.py` has no fixed random seed, so retraining gives a slightly different baseline than the 96.82% reported here. All reported numbers come from the committed models in `models/`.
+
 ## How it works (short version)
 
 1. **Train** a small fully connected network on MNIST.

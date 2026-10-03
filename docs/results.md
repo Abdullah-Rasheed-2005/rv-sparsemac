@@ -72,3 +72,21 @@ also fine-tune the baseline for 5 epochs. This is on the to-do list.
 
 These are operation counts, not cycle counts. Hardware speedup will be
 measured in simulation and added here.
+
+## Sparse dot-product engine (simulation)
+
+`hardware/rtl/sparse_dot.v` skips zero weights (zero inputs are not skipped yet).
+Measured with `make sim-sparse` on the first 10 test images, one MAC per cycle:
+
+| Layer | Cycles per image | Dense (no skipping, calculated) |
+|---|---|---|
+| fc1 | 10,219 | 50,368 |
+| fc2 | 663 | 670 |
+| Total | 10,882 | 51,038 |
+
+About 4.7x fewer cycles from skipping zero weights. The dense column is
+calculated as (inputs + 3) cycles per neuron for the same engine, not simulated.
+These numbers cover only the dot-product engine. Bias, ReLU, shift, memory
+loading and the control FSM are not included yet.
+
+One fc1 neuron has no nonzero weights left after pruning (count = 0).

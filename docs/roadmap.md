@@ -11,7 +11,7 @@
 
 ## Phase 2 - Hardware building blocks
 - [x] MAC unit: unsigned x signed, 32-bit accumulator (`mac.v`)
-- [ ] Sparse dot-product engine: process only nonzero weights for one neuron
+- [x] Sparse dot-product engine: process only nonzero weights for one neuron
 - [ ] Control FSM: load, compute, ReLU + shift, store
 - [ ] Full fc1 + fc2 inference in simulation, matching the golden logits
 

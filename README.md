@@ -15,7 +15,8 @@ export it to hardware, and (in progress) build the Verilog accelerator.
 | Train, prune, fine-tune, quantize to int8 | Done |
 | Integer-only inference + hex export + golden vectors | Done |
 | MAC unit (`hardware/rtl/mac.v`) + testbench | Done |
-| Sparse dot-product engine | Next |
+| Sparse dot-product engine (skips zero weights) + testbench | Done |
+| Control FSM + full inference in simulation | Next |
 | RISC-V integration (PicoRV32 + PCPI custom instruction) | Planned |
 | Cycle benchmark: dense vs sparse | Planned |
 
@@ -97,6 +98,8 @@ make verify       # check hex files against golden vectors
 
 # 3. Hardware (needs Icarus Verilog: sudo apt install iverilog)
 make sim-mac      # simulate the MAC unit
+make export-sparse  # sparse (index, value) lists
+make sim-sparse   # simulate the sparse dot-product engine
 ```
 
 The trained models are already in `models/` and the hex files are already in

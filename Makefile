@@ -1,7 +1,7 @@
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify sim-mac clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse clean
 
 help:
 	@echo "Targets:"
@@ -14,7 +14,9 @@ help:
 	@echo "  finetune    prune fc1 and fine-tune (70/80/90 percent)"
 	@echo "  export      integer inference + write hex files for Verilog"
 	@echo "  verify      check the hex files against the golden vectors"
+	@echo "  export-sparse  write the sparse (index, value) lists + golden dot products"
 	@echo "  sim-mac     simulate the MAC unit testbench (needs iverilog)"
+	@echo "  sim-sparse  simulate the sparse dot-product engine (needs iverilog)"
 
 venv:
 	python3 -m venv venv
@@ -44,10 +46,18 @@ export:
 verify:
 	$(PY) software/verify_export.py
 
+export-sparse:
+	$(PY) software/export_sparse.py
+
 sim-mac:
 	mkdir -p build
 	iverilog -o build/sim_mac hardware/tb/tb_mac.v hardware/rtl/mac.v
 	vvp build/sim_mac
+
+sim-sparse:
+	mkdir -p build
+	iverilog -o build/sim_sparse hardware/tb/tb_sparse_dot.v hardware/rtl/sparse_dot.v hardware/rtl/mac.v
+	vvp build/sim_sparse
 
 clean:
 	rm -rf build

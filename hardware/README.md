@@ -21,6 +21,19 @@ Needs Icarus Verilog (`sudo apt install iverilog`). Expected last line:
 PASS: all MAC tests passed (acc=...)
 ```
 
+The sparse dot-product engine needs its sparse files first (once):
+
+```bash
+make export-sparse
+make sim-sparse
+```
+
+Expected last line:
+
+```
+PASS: sparse_dot matched the golden values (640 fc1 + 100 fc2 neurons)
+```
+
 ## Adding PicoRV32 (later)
 
 ```bash

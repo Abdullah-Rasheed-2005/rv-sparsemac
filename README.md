@@ -72,12 +72,11 @@ rv-sparsemac/
 │   ├── verify_export.py
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
-├── hardware/
-│   ├── rtl/                  Verilog design files
-│   ├── tb/                   Verilog testbenches
-│   ├── mem/                  hex weights + golden vectors for $readmemh
-│   └── third_party/          external cores (PicoRV32, as a git submodule)
-└── scripts/                  helper scripts
+└── hardware/
+    ├── rtl/                  Verilog design files
+    ├── tb/                   Verilog testbenches
+    ├── mem/                  hex weights + golden vectors for $readmemh
+    └── third_party/          external cores (PicoRV32, as a git submodule)
 ```
 
 ## Quick start

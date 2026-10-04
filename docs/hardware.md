@@ -276,9 +276,23 @@ first. Two things make this work:
    is trained a little more while its inputs are cut at random budgets, so it
    learns to decide from the first inputs. The pruning mask is kept.
 
-Without the order a budget of 1,700 MACs gives about 81 % accuracy; with the
-order about 95.7 %; with the order and the fine-tuning about 96.7 % (10,000 test
-images, see `budget_experiment.py`; the unlimited network has about 97.0 %).
+For the 80 % pruned network and a budget of 1,700 MACs: about 81 % accuracy
+without the order, about 95.7 % with the order, about 96.7 % with the order and
+the fine-tuning (10,000 test images, `budget_experiment.py`; unlimited: about 97.0 %).
+
+### 6.3b Which model, which budget
+
+Pruning and the budget do different jobs: pruning lowers the average cost, the
+budget bounds the worst case. `software/budget_pareto.py` combines them
+([budget_pareto.md](budget_pareto.md)). The hardware simulations use the 90 %
+pruned model with a budget of 1,000 cycles: 96.81 % accuracy against 96.85 %
+without a budget, 857 layer-1 cycles on average, never more than 1,000.
+
+`software/budget_study.py` ([budget_study.md](budget_study.md)) compares the
+budget with two other ways to guarantee the same worst case, for the 80 %
+model: pruning more (93.1 % at 1,700 cycles) and keeping a fixed subset of
+pixels (79.7 %), against 96.7 % with the budget; three random seeds differ by
+about 0.1 point at most.
 
 ### 6.4 Verification
 
@@ -301,4 +315,7 @@ before the Verilog was written; the simulation reproduced that model's numbers.
   only `done` (and therefore the end of `SMAC.RUN`) is constant. Power and
   electromagnetic side channels are not addressed.
 - `PAD = 800` is a safe value for this network size, not a tight one.
-- One model, one random seed, MNIST only.
+- The model and budget were chosen by looking at test-set accuracy of several
+  configurations, which is slightly optimistic. The combined experiment used one
+  random seed per sparsity and twice as many fine-tuning epochs as the plain models.
+- MNIST only.

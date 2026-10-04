@@ -1,9 +1,10 @@
 """
 export_budget.py - Export the budget-aware model for the bounded-latency hardware
 =================================================================================
-Input (written by software/budget_experiment.py, then copied into models/):
-    models/budget_fc1_80.pth   the pruned model after budget-aware fine-tuning
-    models/budget_order.txt    the fixed pixel order (most useful pixel first)
+Input (written by software/budget_pareto.py into build/, then copied into models/):
+    models/budget_fc1_<S>.pth    the S % pruned model after budget-aware fine-tuning
+    models/budget_order_<S>.txt  its fixed pixel order (most useful pixel first)
+(For S = 80 the older file name models/budget_order.txt is also accepted.)
 
 The hardware visits its inputs in the order 0, 1, 2, ... So the order is built
 into the exported files: input k of the exported network is pixel order[k] of
@@ -20,8 +21,8 @@ written by the same code path as the edge model), plus
     order.hex             the pixel order (4 hex digits per line), for firmware / loaders
 
 Run from the repository root:
-    python3 software/export_budget.py            (budget 1700)
-    python3 software/export_budget.py 1300       (another budget)
+    python3 software/export_budget.py            (budget 1000, 90 % pruned model)
+    python3 software/export_budget.py 1700 80    (another budget, another model)
 """
 
 import subprocess
@@ -34,8 +35,6 @@ import budget_lib as L
 from paths import MODELS_DIR, ROOT
 
 OUT = ROOT / 'build' / 'budget_mem'
-MODEL = MODELS_DIR / 'budget_fc1_80.pth'
-ORDER = MODELS_DIR / 'budget_order.txt'
 NIMG = 100
 
 
@@ -95,10 +94,15 @@ if __name__ == '__main__':
     from budget_experiment_lib import to_int
     from paths import DATA_DIR
 
-    budget = int(sys.argv[1]) if len(sys.argv) > 1 else 1700
+    budget = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
+    sparsity = int(sys.argv[2]) if len(sys.argv) > 2 else 90
+    MODEL = MODELS_DIR / f'budget_fc1_{sparsity}.pth'
+    ORDER = MODELS_DIR / f'budget_order_{sparsity}.txt'
+    if sparsity == 80 and not ORDER.exists():
+        ORDER = MODELS_DIR / 'budget_order.txt'
     if not MODEL.exists() or not ORDER.exists():
-        sys.exit(f'missing {MODEL.name} / {ORDER.name} in models/: run software/budget_experiment.py, '
-                 f'then copy build/budget_fc1_80.pth and build/budget_order.txt into models/')
+        sys.exit(f'missing {MODEL.name} / {ORDER.name} in models/: run software/budget_pareto.py, '
+                 f'then copy build/budget_fc1_{sparsity}.pth and build/budget_order_{sparsity}.txt into models/')
 
     train = datasets.MNIST(root=str(DATA_DIR), train=True, download=True)
     test = datasets.MNIST(root=str(DATA_DIR), train=False, download=True)
@@ -116,12 +120,12 @@ if __name__ == '__main__':
     full, _ = L.accuracy_at(Xte, Yte, net, order, 10 ** 9, L.column_cycles)
     acc, used = L.accuracy_at(Xte, Yte, net, order, budget, L.column_cycles)
     _, free = L.truncate(Xte, order, cyc, 10 ** 9)
-    print(f'model: {MODEL.name}, layer-1 budget = {budget} cycles')
+    print(f'model: {MODEL.name} ({sparsity} % of fc1 pruned), layer-1 budget = {budget} cycles')
     print(f'accuracy, no budget   : {full:.2f}%  (layer-1 cycles: average {free.mean():.0f}, maximum {free.max()}, '
           f'worst possible image {cyc.sum()})')
     print(f'accuracy, with budget : {acc:.2f}%  (layer-1 cycles: average {used:.0f}, maximum {budget})')
 
-    used100 = write_dir(OUT, net, order, Xte[:NIMG], Yte[:NIMG], budget)
+    used100 = write_dir(OUT, net, order, Xte[:NIMG], Yte[:NIMG], budget, sparsity)
     print(f'golden values for {NIMG} images written, {int((used100 < L.truncate(Xte[:NIMG], order, cyc, 10 ** 9)[1]).sum())} '
           f'of them are cut by the budget')
     print(f'Budget model written to {OUT}')

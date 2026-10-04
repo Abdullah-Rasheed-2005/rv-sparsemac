@@ -75,6 +75,8 @@ def budget_section():
     npass = find(r'passes checked: (\d+)', sb, 'passes checked')
 
     B = find(r'layer-1 budget = (\d+) cycles', zb, 'budget')
+    model = find(r'model: (\S+) ', zb, 'model file', str)
+    sp = find(r'\((\d+) % of fc1 pruned\)', zb, 'sparsity')
     acc_free = find(r'accuracy, no budget\s+: ([\d.]+)%', zb, 'accuracy no budget', float)
     acc_bud = find(r'accuracy, with budget : ([\d.]+)%', zb, 'accuracy with budget', float)
     l1_avg = find(r'accuracy, no budget.*?average (\d+)', zb, 'layer-1 average')
@@ -105,8 +107,9 @@ def budget_section():
     return f'''
 ### Bounded run time (`make sim-zs-budget`, `make sim-soc-budget`)
 
-Model: the 80 % pruned network after budget-aware fine-tuning (`models/budget_fc1_80.pth`),
-inputs stored most-useful-first (`models/budget_order.txt`). Layer-1 budget: {f(B)} cycles.
+Model: the {sp} % pruned network after budget-aware fine-tuning (`models/{model}`),
+inputs stored most-useful-first. Layer-1 budget: {f(B)} cycles. Why this model and this
+budget: [budget_pareto.md](budget_pareto.md) and [budget_study.md](budget_study.md).
 The accuracy lines are computed by `software/export_budget.py` on all 10,000 test images with
 the same rule as the hardware; the cycle counts are RTL simulation of 100 test images.
 
@@ -134,7 +137,7 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
 - Limits of these numbers. Loading and reading cost {f(fixed)} cycles per image whatever the budget is, so the
   whole loop gains little on average; the gain is in the worst case. The images in RAM are already stored
   most-useful-first: a real system has to apply that order while loading, which is not measured here.
-  One trained model (one random seed), MNIST only.
+  MNIST only.
 '''
 
 

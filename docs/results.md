@@ -163,33 +163,34 @@ reading the ten logits. Split for `sparse_mlp_zs.v`:
 
 ### Bounded run time (`make sim-zs-budget`, `make sim-soc-budget`)
 
-Model: the 80 % pruned network after budget-aware fine-tuning (`models/budget_fc1_80.pth`),
-inputs stored most-useful-first (`models/budget_order.txt`). Layer-1 budget: 1,700 cycles.
+Model: the 90 % pruned network after budget-aware fine-tuning (`models/budget_fc1_90.pth`),
+inputs stored most-useful-first. Layer-1 budget: 1,000 cycles. Why this model and this
+budget: [budget_pareto.md](budget_pareto.md) and [budget_study.md](budget_study.md).
 The accuracy lines are computed by `software/export_budget.py` on all 10,000 test images with
 the same rule as the hardware; the cycle counts are RTL simulation of 100 test images.
 
-| | No budget | Budget 1,700 | Budget 1,700 + constant time |
+| | No budget | Budget 1,000 | Budget 1,000 + constant time |
 |---|---|---|---|
-| Accuracy, 10,000 images | 96.99% | 96.71% | 96.71% |
-| Accelerator cycles per image, average | 2,170 | 1,977 | 2,501 |
-| Accelerator cycles, slowest of the 100 test images | 3,618 | 2,235 | 2,501 |
-| Accelerator cycles, all-255 image (slowest possible input) | 10,689 | 2,069 | 2,501 |
-| Whole loop on PicoRV32 per image (load + run + read) | 8,372 | 8,065 | 8,589 |
+| Accuracy, 10,000 images | 96.85% | 96.81% | 96.81% |
+| Accelerator cycles per image, average | 1,319 | 1,274 | 1,801 |
+| Accelerator cycles, slowest of the 100 test images | 2,041 | 1,532 | 1,801 |
+| Accelerator cycles, all-255 image (slowest possible input) | 5,898 | 1,356 | 1,801 |
+| Whole loop on PicoRV32 per image (load + run + read) | 7,522 | 7,362 | 7,889 |
 
-- The budget costs 0.28 points of accuracy. It cuts the slowest possible input from
-  10,689 to 2,069 cycles (5.2x) and the average from 2,170 to 1,977 cycles.
-  Every run with the budget stayed below the bound of 2,500 cycles checked by the testbench.
-- Layer 1 alone, on all 10,000 images (no simulation): average 1,857 cycles and maximum 3,780 without a
-  budget, 10,323 for the slowest possible input; average 1,574 and maximum 1,700 with the budget.
-- 49 of the 100 test images are cut by the budget. Their logits match the golden values of
+- The budget costs 0.04 points of accuracy. It cuts the slowest possible input from
+  5,898 to 1,356 cycles (4.3x) and the average from 1,319 to 1,274 cycles.
+  Every run with the budget stayed below the bound of 1,800 cycles checked by the testbench.
+- Layer 1 alone, on all 10,000 images (no simulation): average 923 cycles and maximum 1,893 without a
+  budget, 5,483 for the slowest possible input; average 857 and maximum 1,000 with the budget.
+- 26 of the 100 test images are cut by the budget. Their logits match the golden values of
   `software/budget_lib.py` bit for bit, so the accuracy claim and the hardware use the same rule.
-- Constant time: all images, an all-zero and an all-255 image finish after exactly 2,501 accelerator cycles.
-  Seen from the CPU (`SMAC.CYC`, 100 images): minimum 2,501, maximum 2,501;
-  with the budget only: minimum 1,088, maximum 2,235.
-  Constant time costs 27% more cycles than the budget alone.
-- All-255 image through the CPU (`SMAC.CYC`): 10,689 without a budget, 2,069 with the budget,
-  2,501 in constant time. The 3 passes of the SoC simulation were checked against the golden values.
+- Constant time: all images, an all-zero and an all-255 image finish after exactly 1,801 accelerator cycles.
+  Seen from the CPU (`SMAC.CYC`, 100 images): minimum 1,801, maximum 1,801;
+  with the budget only: minimum 801, maximum 1,532.
+  Constant time costs 41% more cycles than the budget alone.
+- All-255 image through the CPU (`SMAC.CYC`): 5,898 without a budget, 1,356 with the budget,
+  1,801 in constant time. The 3 passes of the SoC simulation were checked against the golden values.
 - Limits of these numbers. Loading and reading cost 6,192 cycles per image whatever the budget is, so the
   whole loop gains little on average; the gain is in the worst case. The images in RAM are already stored
   most-useful-first: a real system has to apply that order while loading, which is not measured here.
-  One trained model (one random seed), MNIST only.
+  MNIST only.

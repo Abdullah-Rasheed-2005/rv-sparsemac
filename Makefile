@@ -87,11 +87,13 @@ sim-zs-edge:
 	iverilog -DMEMDIR='"build/edge_mem"' -o build/sim_zs_edge hardware/tb/tb_sparse_mlp_zs.v hardware/rtl/sparse_mlp_zs.v
 	vvp build/sim_zs_edge
 
-# Bounded run time. Needs models/budget_fc1_80.pth and models/budget_order.txt
-# (written by software/budget_experiment.py into build/, then copied into models/).
-BUDGET ?= 1700
+# Bounded run time. Needs models/budget_fc1_<S>.pth and models/budget_order_<S>.txt
+# (written by software/budget_pareto.py into build/, then copied into models/).
+# docs/budget_pareto.md shows why 90 % pruned with a budget of 1000 cycles is used.
+BUDGET ?= 1000
+BUDGET_SPARSITY ?= 90
 sim-zs-budget:
-	$(PY) software/export_budget.py $(BUDGET)
+	$(PY) software/export_budget.py $(BUDGET) $(BUDGET_SPARSITY)
 	mkdir -p build
 	iverilog -o build/sim_zs_budget hardware/tb/tb_zs_budget.v hardware/rtl/sparse_mlp_zs.v
 	vvp build/sim_zs_budget
@@ -141,7 +143,7 @@ sim-soc-ws: fw build/layout.vh
 # The weights, images and golden values come from build/budget_mem (software/export_budget.py).
 sim-soc-budget: FWDEFS += -DBUDGET_RUN -DNSW_CSC=2
 sim-soc-budget: fw build/layout.vh
-	$(PY) software/export_budget.py $(BUDGET)
+	$(PY) software/export_budget.py $(BUDGET) $(BUDGET_SPARSITY)
 	iverilog -g2005 -Ibuild -DBUDGET_RUN -DMEMDIR='"build/budget_mem"' -o build/sim_soc_budget $(SOC_SRC)
 	vvp build/sim_soc_budget
 

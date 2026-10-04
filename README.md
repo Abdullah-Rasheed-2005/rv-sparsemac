@@ -85,6 +85,8 @@ rv-sparsemac/
 │   ├── make_edge_model.py    artificial network for corner cases (sim-zs-edge)
 │   ├── budget_lib.py         the run-time budget rule (exact integer model)
 │   ├── budget_experiment.py  accuracy with a budget + budget-aware fine-tuning
+│   ├── budget_study.py       seeds, alternatives with the same worst case, timing leak
+│   ├── budget_pareto.py      pruning and the budget together (picks the hardware model)
 │   ├── export_budget.py      export the budget-aware model (build/budget_mem)
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
@@ -139,14 +141,24 @@ Note: `train_baseline.py` has no fixed random seed, so retraining gives a slight
 
 ## Bounded run time
 
-A zero-skipping accelerator is fast on average but its run time depends on the
-image (here: 2,170 cycles on average, 10,689 for an all-255 image). With
-`SMAC.CFG` the CPU can give layer 1 a hard cycle budget; the inputs are visited
-most-useful-first and the model is fine-tuned to cope with a cut image. With a
-budget of 1,700 cycles the accuracy on the 10,000 test images goes from 96.99 %
-to 96.71 %, the all-255 image takes 2,069 cycles, and in constant-time mode
-every image takes exactly 2,501 cycles. Details: [docs/hardware.md](docs/hardware.md)
-section 6, numbers: [docs/results.md](docs/results.md).
+A zero-skipping accelerator is fast on average, but its run time depends on the
+image: an image with every pixel set is about five times slower than an average
+digit. With `SMAC.CFG` the CPU gives layer 1 a hard cycle budget. The inputs are
+visited most-useful-first and the model is fine-tuned to cope with a cut image.
+
+Measured on the 10,000 test images (layer-1 cycles, exact hardware arithmetic):
+
+| Model | Accuracy | Average cycles | Guaranteed worst case |
+|---|---|---|---|
+| 80 % pruned, no budget | 97.07% | 1,857 | 10,036 |
+| 90 % pruned, no budget | 96.85% | 923 | 5,483 |
+| **90 % pruned, budget 1,000** | **96.81%** | **857** | **1,000** |
+| pruning alone until the worst case is 1,000 (605 weights left) | 87.70% | - | 1,000 |
+
+In constant-time mode every image takes exactly the same number of cycles.
+Why this works and what it does not cover: [docs/hardware.md](docs/hardware.md)
+section 6. All numbers: [docs/results.md](docs/results.md),
+[docs/budget_study.md](docs/budget_study.md), [docs/budget_pareto.md](docs/budget_pareto.md).
 
 ## How it works (short version)
 

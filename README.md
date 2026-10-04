@@ -22,7 +22,8 @@ core (in simulation).
 | RISC-V integration (PicoRV32 + PCPI custom instructions) + C firmware | Done |
 | Cycle benchmark: CPU software vs accelerator (simulation) | Done |
 | Dense reference in simulation (same engine, nothing skipped) | Done |
-| FPGA build | Planned |
+| Bounded run time: hard cycle budget + constant-time mode (`SMAC.CFG`), budget-aware model | Done |
+| Accelerator loads the image itself (bus master), FPGA build | Planned |
 
 See [docs/roadmap.md](docs/roadmap.md) for the detailed plan.
 
@@ -82,6 +83,9 @@ rv-sparsemac/
 │   ├── export_sparse.py      sparse (CSR and CSC) weight lists + golden vectors
 │   ├── export_dense_lists.py dense lists in the sparse format (for sim-dense)
 │   ├── make_edge_model.py    artificial network for corner cases (sim-zs-edge)
+│   ├── budget_lib.py         the run-time budget rule (exact integer model)
+│   ├── budget_experiment.py  accuracy with a budget + budget-aware fine-tuning
+│   ├── export_budget.py      export the budget-aware model (build/budget_mem)
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
 ├── firmware/                 C program for the RISC-V core + custom-instruction header
@@ -116,12 +120,14 @@ make sim-sparse   # simulate the sparse dot-product engine
 make sim-mlp      # whole network, skips zero weights
 make sim-zs       # whole network, skips zero weights AND zero activations
 make sim-dense    # same engine with nothing skipped (dense baseline)
+make sim-zs-budget  # bounded run time: hard cycle budget and constant time
 
 # 4. RISC-V system. One-time setup: the PicoRV32 submodule and the RISC-V compiler
 #    git submodule update --init      (or clone with --recurse-submodules)
 #    sudo apt install gcc-riscv64-unknown-elf
 make sim-pcpi     # custom-instruction wrapper alone
 make sim-soc      # PicoRV32 + accelerator run the firmware on 100 images
+make sim-soc-budget  # same with the run-time budget set by the CPU (SMAC.CFG)
 make report       # run everything and write the numbers into docs/results.md
 ```
 
@@ -130,6 +136,17 @@ The trained models are already in `models/` and the hex files are already in
 training anything.
 
 Note: `train_baseline.py` has no fixed random seed, so retraining gives a slightly different baseline than the 96.82% reported here. All reported numbers come from the committed models in `models/`.
+
+## Bounded run time
+
+A zero-skipping accelerator is fast on average but its run time depends on the
+image (here: 2,170 cycles on average, 10,689 for an all-255 image). With
+`SMAC.CFG` the CPU can give layer 1 a hard cycle budget; the inputs are visited
+most-useful-first and the model is fine-tuned to cope with a cut image. With a
+budget of 1,700 cycles the accuracy on the 10,000 test images goes from 96.99 %
+to 96.71 %, the all-255 image takes 2,069 cycles, and in constant-time mode
+every image takes exactly 2,501 cycles. Details: [docs/hardware.md](docs/hardware.md)
+section 6, numbers: [docs/results.md](docs/results.md).
 
 ## How it works (short version)
 

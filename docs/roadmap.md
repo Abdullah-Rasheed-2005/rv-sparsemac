@@ -24,6 +24,15 @@
 - [ ] Run the system on an FPGA (block RAM instead of `$readmemh`, UART output)
 - [ ] Let the accelerator read the image from RAM itself (bus master) instead of `SMAC.LDW`
 
+## Phase 3b - Bounded run time
+- [x] Software study: accuracy with a hard layer-1 budget, fixed input order, budget-aware fine-tuning
+- [x] Budget and constant-time mode in `sparse_mlp_zs.v`, bit-exact against the software rule
+- [x] `SMAC.CFG` instruction, SoC simulation with the budget set by the CPU
+- [ ] Bus-master loader that applies the input order (bounds the whole loop, not only the accelerator)
+- [ ] Repeat with 3 random seeds; compare with simply pruning more at the same average cost
+- [ ] Second dataset (Fashion-MNIST)
+- [ ] Timing-leak and slow-input measurements with and without the budget
+
 ## Phase 4 - Benchmark and report
 - [x] Cycle count: software loop vs weight-skipping vs zero-skipping accelerator (`make report`)
 - [x] Dense reference in simulation (`make sim-dense`: the same engine fed every weight)

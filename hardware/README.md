@@ -92,7 +92,8 @@ PASS: CPU + accelerator matched golden logits and predictions (100 images, 1000 
 | File | Content |
 |---|---|
 | `rtl/sparse_mlp_zs.v` | accelerator, skips zero weights and zero activations |
-| `rtl/sparsemac_pcpi.v` | PCPI wrapper: the custom instructions `SMAC.LDW/RUN/LOGIT/CYC` |
+| `rtl/sparsemac_pcpi.v` | PCPI wrapper: the custom instructions `SMAC.LDW/RUN/LOGIT/CYC/CFG` |
+| `tb/tb_zs_budget.v` | run-time budget and constant time of the accelerator (`make sim-zs-budget`) |
 | `tb/tb_sparse_mlp_zs.v` | golden images + stress tests of the accelerator |
 | `tb/tb_sparsemac_pcpi.v` | PCPI wrapper tested without a CPU |
 | `tb/tb_soc.v` | PicoRV32 + RAM + wrapper running the firmware |

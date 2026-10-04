@@ -55,6 +55,89 @@ def soc_numbers(text):
     return d
 
 
+def budget_pass(text, title):
+    """The five numbers the firmware prints for one budget pass."""
+    m = re.search(title + r':\n\s+correct:\s+(\d+)\n\s+accelerator cycles, total:\s+(\d+)\n'
+                  r'\s+accelerator cycles, min:\s+(\d+)\n\s+accelerator cycles, max:\s+(\d+)\n'
+                  r'\s+whole loop cycles, total:\s+(\d+)', text)
+    if not m:
+        sys.exit(f'could not find the block "{title}" in sim-soc-budget.log')
+    return dict(zip(('correct', 'acc', 'min', 'max', 'all'), map(int, m.groups())))
+
+
+def budget_section():
+    """The section about the run-time budget, from sim-zs-budget.log and sim-soc-budget.log."""
+    zb = read_log('sim-zs-budget.log')
+    sb = read_log('sim-soc-budget.log')
+    if 'PASS: sparse_mlp_zs budget matched' not in zb:
+        sys.exit('sim-zs-budget did not pass - fix the failure first')
+    S = soc_numbers(sb)                      # pass without a budget (also checks the PASS line)
+    npass = find(r'passes checked: (\d+)', sb, 'passes checked')
+
+    B = find(r'layer-1 budget = (\d+) cycles', zb, 'budget')
+    acc_free = find(r'accuracy, no budget\s+: ([\d.]+)%', zb, 'accuracy no budget', float)
+    acc_bud = find(r'accuracy, with budget : ([\d.]+)%', zb, 'accuracy with budget', float)
+    l1_avg = find(r'accuracy, no budget.*?average (\d+)', zb, 'layer-1 average')
+    l1_max = find(r'accuracy, no budget.*?maximum (\d+)', zb, 'layer-1 maximum')
+    l1_worst = find(r'worst possible image (\d+)', zb, 'layer-1 worst')
+    l1_bavg = find(r'accuracy, with budget.*?average (\d+)', zb, 'layer-1 average with budget')
+    f_avg = find(r'--- no budget ---\ncycles per image \(start to done\): average (\d+)', zb, 'free average')
+    f_max = find(r'--- no budget ---\ncycles per image \(start to done\): average \d+, max (\d+)', zb, 'free max')
+    b_avg = find(r'cycles ---\ncycles per image \(start to done\): average (\d+)', zb, 'budget average')
+    b_max = find(r'cycles ---\ncycles per image \(start to done\): average \d+, max (\d+)', zb, 'budget max')
+    bound = find(r'bound (\d+)', zb, 'bound')
+    cut = find(r'changed by the budget: (\d+) of', zb, 'cut images')
+    w_bud = find(r'all-255 image with the budget: (\d+)', zb, 'all-255 budget')
+    w_free = find(r'all-255 image without a budget: (\d+)', zb, 'all-255 free')
+    ct = find(r'all zero, all 255\): (\d+) cycles', zb, 'constant time')
+
+    pb = budget_pass(sb, 'with budget')
+    pc = budget_pass(sb, 'with budget, constant time')
+    c_free = find(r'all-255 image, no budget:\s+(\d+)', sb, 'cpu all-255 free')
+    c_bud = find(r'all-255 image, budget:\s+(\d+)', sb, 'cpu all-255 budget')
+    c_ct = find(r'all-255 image, constant time:\s+(\d+)', sb, 'cpu all-255 constant time')
+    n = S['n']
+    fixed = (S['load'] + S['read']) / n      # loading and reading do not depend on the budget
+
+    def f(x):
+        return f'{x:,.0f}'
+
+    return f'''
+### Bounded run time (`make sim-zs-budget`, `make sim-soc-budget`)
+
+Model: the 80 % pruned network after budget-aware fine-tuning (`models/budget_fc1_80.pth`),
+inputs stored most-useful-first (`models/budget_order.txt`). Layer-1 budget: {f(B)} cycles.
+The accuracy lines are computed by `software/export_budget.py` on all 10,000 test images with
+the same rule as the hardware; the cycle counts are RTL simulation of 100 test images.
+
+| | No budget | Budget {f(B)} | Budget {f(B)} + constant time |
+|---|---|---|---|
+| Accuracy, 10,000 images | {acc_free:.2f}% | {acc_bud:.2f}% | {acc_bud:.2f}% |
+| Accelerator cycles per image, average | {f(f_avg)} | {f(b_avg)} | {f(ct)} |
+| Accelerator cycles, slowest of the 100 test images | {f(f_max)} | {f(b_max)} | {f(ct)} |
+| Accelerator cycles, all-255 image (slowest possible input) | {f(w_free)} | {f(w_bud)} | {f(ct)} |
+| Whole loop on PicoRV32 per image (load + run + read) | {f(S['all'] / n)} | {f(pb['all'] / n)} | {f(pc['all'] / n)} |
+
+- The budget costs {acc_free - acc_bud:.2f} points of accuracy. It cuts the slowest possible input from
+  {f(w_free)} to {f(w_bud)} cycles ({w_free / w_bud:.1f}x) and the average from {f(f_avg)} to {f(b_avg)} cycles.
+  Every run with the budget stayed below the bound of {f(bound)} cycles checked by the testbench.
+- Layer 1 alone, on all 10,000 images (no simulation): average {f(l1_avg)} cycles and maximum {f(l1_max)} without a
+  budget, {f(l1_worst)} for the slowest possible input; average {f(l1_bavg)} and maximum {f(B)} with the budget.
+- {cut} of the 100 test images are cut by the budget. Their logits match the golden values of
+  `software/budget_lib.py` bit for bit, so the accuracy claim and the hardware use the same rule.
+- Constant time: all images, an all-zero and an all-255 image finish after exactly {f(ct)} accelerator cycles.
+  Seen from the CPU (`SMAC.CYC`, {n} images): minimum {f(pc['min'])}, maximum {f(pc['max'])};
+  with the budget only: minimum {f(pb['min'])}, maximum {f(pb['max'])}.
+  Constant time costs {100 * (ct / b_avg - 1):.0f}% more cycles than the budget alone.
+- All-255 image through the CPU (`SMAC.CYC`): {f(c_free)} without a budget, {f(c_bud)} with the budget,
+  {f(c_ct)} in constant time. The {npass} passes of the SoC simulation were checked against the golden values.
+- Limits of these numbers. Loading and reading cost {f(fixed)} cycles per image whatever the budget is, so the
+  whole loop gains little on average; the gain is in the worst case. The images in RAM are already stored
+  most-useful-first: a real system has to apply that order while loading, which is not measured here.
+  One trained model (one random seed), MNIST only.
+'''
+
+
 def results():
     mlp = read_log('sim-mlp.log')
     zs = read_log('sim-zs.log')
@@ -152,6 +235,8 @@ reading the ten logits. Split for `sparse_mlp_zs.v`:
 - Handshake tests of the custom instructions without a CPU: `make sim-pcpi` passes
   (including instructions that must be ignored).
 '''
+    out += budget_section()
+
     p = ROOT / 'docs' / 'results.md'
     s = p.read_text()
     if MARK in s:

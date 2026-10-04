@@ -156,6 +156,8 @@ report:
 	set -o pipefail; $(MAKE) --no-print-directory sim-pcpi     2>&1 | tee build/logs/sim-pcpi.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-soc      2>&1 | tee build/logs/sim-soc.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-soc-ws   2>&1 | tee build/logs/sim-soc-ws.log
+	set -o pipefail; $(MAKE) --no-print-directory sim-zs-budget  2>&1 | tee build/logs/sim-zs-budget.log
+	set -o pipefail; $(MAKE) --no-print-directory sim-soc-budget 2>&1 | tee build/logs/sim-soc-budget.log
 	$(PY) scripts/write_results.py
 
 clean:

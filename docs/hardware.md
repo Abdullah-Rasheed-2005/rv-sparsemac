@@ -6,6 +6,7 @@ is checked by a simulation (`make help` lists them).
 ```
 mac.v  ->  sparse_dot.v  ->  sparse_mlp.v        weights skipped            (output by output)
                          ->  sparse_mlp_zs.v     weights AND zeros skipped  (input by input)
+                                                 + optional run-time budget / constant time (section 6)
                                    |
                                    v
                          sparsemac_pcpi.v  ->  PicoRV32 (custom instructions)  ->  firmware/main.c
@@ -163,8 +164,9 @@ All are R-type, opcode `0x0B` (the RISC-V *custom-0* space), `funct7 = 0`:
 | 1 | `SMAC.RUN` | - | - | predicted digit | start and wait for the result |
 | 2 | `SMAC.LOGIT` | class 0..9 | - | logit (0 if rs1 > 9) | read a logit of the last run |
 | 3 | `SMAC.CYC` | - | - | cycles | accelerator clocks of the last run |
+| 4 | `SMAC.CFG` | layer-1 cycle budget (0 = no limit) | bit 0: constant time | 0 | bound the run time (section 6) |
 
-`funct3` 4..7, `funct7 != 0` and other opcodes are not claimed, so the core
+`funct3` 5..7, `funct7 != 0` and other opcodes are not claimed, so the core
 still traps on them. `make sim-pcpi` checks this.
 
 In C they are written with the assembler directive `.insn` (`firmware/smac.h`):
@@ -227,3 +229,76 @@ The testbench independently compares everything the firmware reports with
   image from RAM itself (a bus master), which is future work.
 - These are simulation cycle counts of a design with simulation memories. They
   are not FPGA timing and not energy.
+
+## 6. Bounded run time
+
+### 6.1 The problem
+
+A zero-skipping accelerator is fast on average, but its run time depends on the
+input: 2,163 cycles for an average digit, more than 10,000 for an image in which
+every pixel is nonzero. That has three consequences:
+
+- a real-time system must plan for the slowest input, not the average one;
+- anybody who can choose the input can make the accelerator several times slower;
+- the run time tells something about the image (a "1" has fewer nonzero pixels than an "8").
+
+### 6.2 The rule
+
+`sparse_mlp_zs.v` has two extra inputs, set from the CPU with `SMAC.CFG`:
+
+```
+budget      0 = no limit. Otherwise layer 1 may spend at most 'budget' cycles on columns.
+            A column of n nonzero weights costs max(n, 3) cycles
+            (the front end needs 3 cycles per column, see 3.2).
+            A column is started only if it still fits.
+            The first column that does not fit ends layer 1; the remaining inputs are dropped.
+const_time  1 = 'done' comes exactly budget + PAD cycles after 'start' (PAD = 800).
+```
+
+The check sits in the front end, in the cycle where the two column pointers have
+arrived: `used + max(len, 3) > budget` sets a flag `cut`, and `cut` stops the
+fetching of further inputs. The columns already granted finish normally, so the
+run phase of layer 1 takes at most `budget` plus a few start-up cycles. Layer 2
+(at most 640 weights) and the two finish sweeps always run completely; they are
+covered by `PAD`.
+
+### 6.3 Why the order of the inputs matters
+
+Inputs are visited in the order they were written. If the budget ends the layer,
+the inputs that were not reached are lost, so the most useful inputs must come
+first. Two things make this work:
+
+1. A fixed order, chosen once from the weights: columns with the largest
+   sum of |weight| per cycle first (`software/budget_lib.py`). No sorting in hardware.
+   The order is built into the exported files (`software/export_budget.py`): input
+   `k` of the hardware is pixel `order[k]`, for the weight columns and for the images.
+2. Budget-aware fine-tuning (`software/budget_experiment.py`): the pruned network
+   is trained a little more while its inputs are cut at random budgets, so it
+   learns to decide from the first inputs. The pruning mask is kept.
+
+Without the order a budget of 1,700 MACs gives about 81 % accuracy; with the
+order about 95.7 %; with the order and the fine-tuning about 96.7 % (10,000 test
+images, see `budget_experiment.py`; the unlimited network has about 97.0 %).
+
+### 6.4 Verification
+
+| Test | What it proves |
+|---|---|
+| `make sim-zs-budget` | budget off: unchanged results. Budget on: 100 images bit-exact against golden values computed by `budget_lib.py`, every run below budget + 800 cycles, stress images (all zero, all 255, single pixels, random densities) against a reference model. Constant time: every image takes exactly the same number of cycles |
+| `make sim-pcpi` | `SMAC.CFG` handshake, two different images take the same `SMAC.CYC` in constant time, and results are back to normal after `SMAC.CFG 0` |
+| `make sim-soc-budget` | PicoRV32 sets the budget with `SMAC.CFG`; three passes over 100 images (no budget, budget, constant time) match the golden values |
+
+The cycle-accurate behaviour was also modelled register by register in Python
+before the Verilog was written; the simulation reproduced that model's numbers.
+
+### 6.5 Limits
+
+- The bound covers the accelerator, not the loading of the image, which costs
+  more than the run itself in this system (`SMAC.LDW`). A bus-master loader is the next step.
+- The images in the simulated RAM are already in the fixed order. A real system
+  has to apply the order while loading (an address table for a bus-master loader).
+- `out_valid` pulses still come at a data-dependent time in constant-time mode;
+  only `done` (and therefore the end of `SMAC.RUN`) is constant. Power and
+  electromagnetic side channels are not addressed.
+- `PAD = 800` is a safe value for this network size, not a tight one.
+- One model, one random seed, MNIST only.

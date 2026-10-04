@@ -18,9 +18,9 @@
 //      difference between its software result and the accelerator result).
 //
 // Memory timing: every access takes 2 clock cycles (one wait state), like a
-// simple synchronous SRAM. The CPU therefore runs slower than with zero-wait
-// memory; the software baseline is not flattered by an unrealistically slow
-// memory, and the accelerator's own memories are not on this bus.
+// simple synchronous SRAM. This slows the CPU (and so the software baseline)
+// compared with zero-wait memory. The accelerator's own memories are not on
+// this bus and have no wait state, so keep this in mind when reading speedups.
 //
 // Run from the repository root with `make sim-soc` (or `make sim-soc-ws`).
 `timescale 1ns/1ps

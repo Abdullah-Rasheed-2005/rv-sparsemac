@@ -21,7 +21,8 @@ core (in simulation).
 | Zero-skipping accelerator (skips zero pixels and zero hidden values too) + stress tests | Done |
 | RISC-V integration (PicoRV32 + PCPI custom instructions) + C firmware | Done |
 | Cycle benchmark: CPU software vs accelerator (simulation) | Done |
-| Dense accelerator in simulation, FPGA build | Planned |
+| Dense reference in simulation (same engine, nothing skipped) | Done |
+| FPGA build | Planned |
 
 See [docs/roadmap.md](docs/roadmap.md) for the detailed plan.
 
@@ -48,8 +49,8 @@ Average multiply-accumulates per image (measured on 100 test images):
 **Important:** the table above counts MAC operations. The measured hardware
 result (RTL simulation, 100 test images) is in
 [docs/results.md](docs/results.md): the zero-skipping accelerator needs about
-2,163 cycles per image, against 51,038 calculated for a dense engine and
-11,030 for the weight-skipping-only design. The remaining cycles over the
+2,163 cycles per image, against 11,030 for the weight-skipping-only design
+and 51,186 for the same engine with nothing skipped (`make sim-dense`). The remaining cycles over the
 2,077 useful MACs are pipeline start-up and the finish sweeps.
 
 Details and notes: [docs/results.md](docs/results.md).
@@ -63,7 +64,8 @@ rv-sparsemac/
 ├── Makefile                  shortcuts for every step (run `make help`)
 ├── requirements.txt          Python packages
 ├── docs/
-│   ├── architecture.md       network, integer pipeline, planned hardware
+│   ├── architecture.md       network, integer pipeline, hardware overview
+│   ├── hardware.md           the accelerator and the RISC-V system in detail
 │   ├── results.md            all measured numbers
 │   └── roadmap.md            plan and progress
 ├── software/                 Python: train, prune, quantize, export
@@ -77,10 +79,13 @@ rv-sparsemac/
 │   ├── finetune_pruned.py
 │   ├── export_int8.py
 │   ├── verify_export.py
+│   ├── export_sparse.py      sparse (CSR and CSC) weight lists + golden vectors
+│   ├── export_dense_lists.py dense lists in the sparse format (for sim-dense)
+│   ├── make_edge_model.py    artificial network for corner cases (sim-zs-edge)
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
 ├── firmware/                 C program for the RISC-V core + custom-instruction header
-├── scripts/                  phase3_docs.py: writes the measured numbers into docs/results.md
+├── scripts/                  write_results.py: writes the measured numbers into docs/results.md
 └── hardware/
     ├── rtl/                  Verilog design files
     ├── tb/                   Verilog testbenches
@@ -110,6 +115,7 @@ make export-sparse  # sparse (index, value) lists
 make sim-sparse   # simulate the sparse dot-product engine
 make sim-mlp      # whole network, skips zero weights
 make sim-zs       # whole network, skips zero weights AND zero activations
+make sim-dense    # same engine with nothing skipped (dense baseline)
 
 # 4. RISC-V system. One-time setup: the PicoRV32 submodule and the RISC-V compiler
 #    git submodule update --init      (or clone with --recurse-submodules)

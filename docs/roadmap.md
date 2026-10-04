@@ -26,7 +26,7 @@
 
 ## Phase 4 - Benchmark and report
 - [x] Cycle count: software loop vs weight-skipping vs zero-skipping accelerator (`make report`)
-- [ ] Dense accelerator in simulation (the dense number is calculated so far)
+- [x] Dense reference in simulation (`make sim-dense`: the same engine fed every weight)
 - [ ] Plots of cycles and accuracy vs sparsity
 - [ ] Fair baseline: fine-tune the dense model for the same 5 epochs
 - [ ] Final write-up in `docs/`

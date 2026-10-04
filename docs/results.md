@@ -113,13 +113,14 @@ logs; none is typed by hand. Clock cycles of the RTL simulation, not FPGA timing
 
 | Design | Cycles per image | Notes |
 |---|---|---|
-| Dense dot-product engine | 51,038 | calculated as (inputs + 3) cycles per neuron, not simulated |
+| `sparse_mlp.v` fed every weight (dense reference) | 51,186 | `make sim-dense`, same engine, nothing skipped |
 | `sparse_mlp.v`, skips zero weights | 11,030 | `make sim-mlp`, includes bias/ReLU/shift/argmax |
 | `sparse_mlp_zs.v`, skips zero weights and zero activations | 2,163 | `make sim-zs`, min 1,034, max 3,627 |
 
 - Useful MACs per image (nonzero pixel x nonzero weight, both layers): 2,077.
   `sparse_mlp_zs.v` needs 86 cycles more than that for pipeline start-up and the two finish sweeps.
-- Speedup of `sparse_mlp_zs.v` over `sparse_mlp.v`: 5.10x. Over the calculated dense engine: 23.6x.
+- Speedup of `sparse_mlp_zs.v` over `sparse_mlp.v`: 5.10x. Over the dense reference: 23.7x.
+- Speedup of `sparse_mlp.v` over the dense reference: 4.64x.
 - Data dependent: an all-zero image takes 280 cycles, an all-255 image 10,722 cycles (nothing to skip in the pixels).
 - Accuracy on these 100 images: 98%.
 - Correctness: 100 golden images bit-exact, plus 24 stress images against a dense

@@ -2,7 +2,7 @@ SHELL := /bin/bash
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge fw sim-soc sim-soc-ws sim-pcpi report clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
 
 help:
 	@echo "Targets:"
@@ -21,6 +21,7 @@ help:
 	@echo "  sim-mlp     simulate the whole network, all 100 golden images (needs iverilog)"
 	@echo "  sim-zs      same, but also skipping zero pixels / hidden values + stress tests"
 	@echo "  sim-zs-edge sim-zs on an artificial network with ties, saturation, empty columns"
+	@echo "  sim-dense   same engine as sim-mlp but fed every weight (measured dense baseline)"
 	@echo "  fw          compile the RISC-V firmware (needs gcc-riscv64-unknown-elf)"
 	@echo "  report      run all hardware/RISC-V simulations and write the numbers into docs/results.md"
 	@echo "  sim-pcpi    test the PCPI wrapper alone (handshake, foreign instructions, results)"
@@ -130,10 +131,11 @@ report:
 	set -o pipefail; $(MAKE) --no-print-directory sim-mlp      2>&1 | tee build/logs/sim-mlp.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-zs       2>&1 | tee build/logs/sim-zs.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-zs-edge  2>&1 | tee build/logs/sim-zs-edge.log
+	set -o pipefail; $(MAKE) --no-print-directory sim-dense    2>&1 | tee build/logs/sim-dense.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-pcpi     2>&1 | tee build/logs/sim-pcpi.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-soc      2>&1 | tee build/logs/sim-soc.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-soc-ws   2>&1 | tee build/logs/sim-soc-ws.log
-	$(PY) scripts/phase3_docs.py results
+	$(PY) scripts/write_results.py
 
 clean:
 	rm -rf build

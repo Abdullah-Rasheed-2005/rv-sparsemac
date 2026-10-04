@@ -71,7 +71,7 @@ make sim-zs-edge
 One-time setup (PicoRV32 is a git submodule, the compiler turns C into RISC-V code):
 
 ```bash
-git submodule add https://github.com/YosysHQ/picorv32.git hardware/third_party/picorv32
+git submodule update --init
 sudo apt install gcc-riscv64-unknown-elf
 ```
 

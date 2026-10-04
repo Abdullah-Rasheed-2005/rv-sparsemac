@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
 """
-phase3_docs.py - Keep the documentation in step with the simulation results
-===========================================================================
-Two jobs, both safe to run more than once:
+write_results.py - Write the measured simulation numbers into docs/results.md
+=============================================================================
+Reads the simulation logs in build/logs/ (written by `make report`) and writes
+the section "## Hardware and RISC-V results (simulation)" at the end of
+docs/results.md. Every number in that section comes from the logs, nothing is
+typed by hand. If the section already exists it is replaced.
 
-  python3 scripts/phase3_docs.py edit
-      Updates README.md and docs/roadmap.md: status table, quick start,
-      repository layout, roadmap check boxes. Changes that are already there
-      are skipped. Prints what it did.
-
-  python3 scripts/phase3_docs.py results
-      Reads the simulation logs in build/logs/ (written by `make report`) and
-      writes the section "## Hardware and RISC-V results (simulation)" at the
-      end of docs/results.md. Every number in that section comes from YOUR logs,
-      nothing is typed by hand. If the section exists it is replaced.
-
-Needs only the Python standard library. Run from the repository root.
+Needs only the Python standard library. `make report` runs it.
 """
 
 import re
@@ -25,96 +17,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOGS = ROOT / 'build' / 'logs'
 MARK = '## Hardware and RISC-V results (simulation)'
-
-
-# ----------------------------------------------------------------- edit mode
-def replace_once(text, old, new, label, notes):
-    if new in text:
-        notes.append(f'  already done : {label}')
-        return text
-    if old not in text:
-        notes.append(f'  NOT FOUND    : {label}  (edit this one by hand)')
-        return text
-    notes.append(f'  changed      : {label}')
-    return text.replace(old, new, 1)
-
-
-def edit_docs():
-    notes = []
-
-    # ---------------- README.md ----------------
-    p = ROOT / 'README.md'
-    s = p.read_text()
-
-    s = replace_once(
-        s,
-        '| Control FSM + full inference in simulation | Done |\n'
-        '| RISC-V integration (PicoRV32 + PCPI custom instruction) | Planned |\n'
-        '| Cycle benchmark: dense vs sparse | Planned |\n',
-        '| Control FSM + full inference in simulation | Done |\n'
-        '| Zero-skipping accelerator (skips zero pixels and zero hidden values too) + stress tests | Done |\n'
-        '| RISC-V integration (PicoRV32 + PCPI custom instructions) + C firmware | Done |\n'
-        '| Cycle benchmark: CPU software vs accelerator (simulation) | Done |\n'
-        '| Dense accelerator in simulation, FPGA build | Planned |\n',
-        'README status table', notes)
-
-    s = replace_once(
-        s,
-        'make sim-sparse   # simulate the sparse dot-product engine\n',
-        'make sim-sparse   # simulate the sparse dot-product engine\n'
-        'make sim-mlp      # whole network, skips zero weights\n'
-        'make sim-zs       # whole network, skips zero weights AND zero activations\n'
-        '\n'
-        '# 4. RISC-V system (one-time: git submodule add ... and sudo apt install gcc-riscv64-unknown-elf,\n'
-        '#    see hardware/README.md)\n'
-        'make sim-pcpi     # custom-instruction wrapper alone\n'
-        'make sim-soc      # PicoRV32 + accelerator run the firmware on 100 images\n'
-        'make report       # run everything and write the numbers into docs/results.md\n',
-        'README quick start', notes)
-
-    s = replace_once(
-        s,
-        '│   └── third_party/          external cores (PicoRV32, as a git submodule)\n',
-        '│   └── third_party/          external cores (PicoRV32, as a git submodule)\n'
-        '├── firmware/                 C program for the RISC-V core + custom-instruction header\n',
-        'README repository layout', notes)
-
-    s = replace_once(
-        s,
-        'More in [docs/architecture.md](docs/architecture.md).',
-        'More in [docs/architecture.md](docs/architecture.md) (the network) and\n'
-        '[docs/hardware.md](docs/hardware.md) (the accelerator and the RISC-V system).',
-        'README links', notes)
-    p.write_text(s)
-
-    # ---------------- docs/roadmap.md ----------------
-    p = ROOT / 'docs' / 'roadmap.md'
-    s = p.read_text()
-    pairs = [
-        ('- [ ] Sparse dot-product engine:', '- [x] Sparse dot-product engine:'),
-        ('- [ ] Control FSM:', '- [x] Control FSM:'),
-        ('- [ ] Full fc1 + fc2 inference in simulation, matching the golden logits',
-         '- [x] Full fc1 + fc2 inference in simulation, matching the golden logits'),
-        ('- [x] Full fc1 + fc2 inference in simulation, matching the golden logits\n',
-         '- [x] Full fc1 + fc2 inference in simulation, matching the golden logits\n'
-         '- [x] Zero skipping on the activation side too (`sparse_mlp_zs.v`, column-wise weights)\n'),
-        ('- [ ] Clone PicoRV32 as a git submodule', '- [x] Clone PicoRV32 as a git submodule'),
-        ('- [ ] Study `picorv32_pcpi_mul`', '- [x] Study `picorv32_pcpi_mul`'),
-        ('- [ ] Wrap the accelerator as a PCPI module (`SPARSEMAC rd, rs1, rs2`)',
-         '- [x] Wrap the accelerator as a PCPI module (`SMAC.LDW`, `SMAC.RUN`, `SMAC.LOGIT`, `SMAC.CYC`)'),
-        ('- [ ] Test program (assembly or C) that runs MNIST inference on the core',
-         '- [x] Test program (C) that runs MNIST inference on the core (`firmware/main.c`)\n'
-         '- [ ] Run the system on an FPGA (block RAM instead of `$readmemh`, UART output)\n'
-         '- [ ] Let the accelerator read the image from RAM itself (bus master) instead of `SMAC.LDW`'),
-        ('- [ ] Cycle count: software loop vs dense accelerator vs sparse accelerator',
-         '- [x] Cycle count: software loop vs weight-skipping vs zero-skipping accelerator (`make report`)\n'
-         '- [ ] Dense accelerator in simulation (the dense number is calculated so far)'),
-    ]
-    for old, new in pairs:
-        s = replace_once(s, old, new, 'roadmap: ' + old[6:50], notes)
-    p.write_text(s)
-
-    print('\n'.join(notes))
 
 
 # --------------------------------------------------------------- results mode
@@ -155,12 +57,14 @@ def results():
     mlp = read_log('sim-mlp.log')
     zs = read_log('sim-zs.log')
     edge = read_log('sim-zs-edge.log')
+    dense = read_log('sim-dense.log')
     pcpi = read_log('sim-pcpi.log')
     soc = read_log('sim-soc.log')
     socws = read_log('sim-soc-ws.log')
     for name, t, tag in (('sim-mlp', mlp, 'PASS: sparse_mlp matched'),
                          ('sim-zs', zs, 'PASS: sparse_mlp_zs matched'),
                          ('sim-zs-edge', edge, 'PASS: sparse_mlp_zs matched'),
+                         ('sim-dense', dense, 'PASS: dense reference matched'),
                          ('sim-pcpi', pcpi, 'PASS: sparsemac_pcpi')):
         if tag not in t:
             sys.exit(f'{name} did not pass - fix the failure first')
@@ -176,7 +80,7 @@ def results():
     all255 = find(r'all-255 image:\s+(\d+) cycles', zs, 'all-255')
     edge_avg = find(r'average (\d+), min', edge, 'edge average')
     stress_n = find(r'(\d+) images checked against the dense reference', zs, 'stress images')
-    dense_calc = 64 * (784 + 3) + 10 * (64 + 3)
+    dense_cyc = find(r'cycles per image \(start to done\):\s+(\d+)', dense, 'sim-dense cycles')
 
     Z, W = soc_numbers(soc), soc_numbers(socws)
     n = Z['n']
@@ -197,13 +101,14 @@ logs; none is typed by hand. Clock cycles of the RTL simulation, not FPGA timing
 
 | Design | Cycles per image | Notes |
 |---|---|---|
-| Dense dot-product engine | {f(dense_calc)} | calculated as (inputs + 3) cycles per neuron, not simulated |
+| `sparse_mlp.v` fed every weight (dense reference) | {f(dense_cyc)} | `make sim-dense`, same engine, nothing skipped |
 | `sparse_mlp.v`, skips zero weights | {f(ws_cyc)} | `make sim-mlp`, includes bias/ReLU/shift/argmax |
 | `sparse_mlp_zs.v`, skips zero weights and zero activations | {f(zs_avg)} | `make sim-zs`, min {f(zs_min)}, max {f(zs_max)} |
 
 - Useful MACs per image (nonzero pixel x nonzero weight, both layers): {f(useful)}.
   `sparse_mlp_zs.v` needs {over} cycles more than that for pipeline start-up and the two finish sweeps.
-- Speedup of `sparse_mlp_zs.v` over `sparse_mlp.v`: {ws_cyc / zs_avg:.2f}x. Over the calculated dense engine: {dense_calc / zs_avg:.1f}x.
+- Speedup of `sparse_mlp_zs.v` over `sparse_mlp.v`: {ws_cyc / zs_avg:.2f}x. Over the dense reference: {dense_cyc / zs_avg:.1f}x.
+- Speedup of `sparse_mlp.v` over the dense reference: {dense_cyc / ws_cyc:.2f}x.
 - Data dependent: an all-zero image takes {f(all0)} cycles, an all-255 image {f(all255)} cycles (nothing to skip in the pixels).
 - Accuracy on these 100 images: {acc100}%.
 - Correctness: 100 golden images bit-exact, plus {stress_n} stress images against a dense
@@ -252,6 +157,4 @@ reading the ten logits. Split for `sparse_mlp_zs.v`:
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2 or sys.argv[1] not in ('edit', 'results'):
-        sys.exit(__doc__)
-    edit_docs() if sys.argv[1] == 'edit' else results()
+    results()

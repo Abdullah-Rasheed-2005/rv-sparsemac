@@ -23,6 +23,9 @@ Sparse files, written by `export_sparse.py` (only nonzero weights are kept):
 | `fc1_nz_val.hex`, `fc2_nz_val.hex` | the nonzero weight (int8) | 2 hex digits per line |
 | `fc1_nz_ptr.hex`, `fc2_nz_ptr.hex` | neuron n owns list entries `ptr[n]` .. `ptr[n+1]-1` | 4 hex digits per line (65 / 11 lines) |
 | `golden_fc1_acc.hex` | raw fc1 dot products, first 10 images, no bias | 8 hex digits per line (int32) |
+| `fc1_csc_ptr.hex`, `fc2_csc_ptr.hex` | the same weights stored by COLUMN: input `j` owns entries `ptr[j]` .. `ptr[j+1]-1` | 4 hex digits per line (785 / 65 lines) |
+| `fc1_csc_row.hex`, `fc2_csc_row.hex` | output neuron of each column entry | 2 hex digits per line |
+| `fc1_csc_val.hex`, `fc2_csc_val.hex` | the nonzero weight (int8) of each column entry | 2 hex digits per line |
 | `golden_hidden.hex` | hidden values of the first 10 images | 2 hex digits per line |
 | `golden_fc2_acc.hex` | raw fc2 dot products, first 10 images, no bias | 8 hex digits per line (int32) |
 | `hidden_shift.hex` | hidden right-shift (from `params.txt`) | 2 hex digits, one line |

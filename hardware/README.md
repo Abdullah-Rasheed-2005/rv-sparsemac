@@ -46,11 +46,57 @@ Expected last line:
 PASS: sparse_mlp matched golden logits and predictions (100 images, 1000 logits)
 ```
 
-## Adding PicoRV32 (later)
+The zero-skipping version (skips zero pixels and zero hidden values too, plus
+stress tests against a dense reference model):
+
+```bash
+make sim-zs
+```
+
+Expected last line:
+
+```
+PASS: sparse_mlp_zs matched golden logits and the reference model (100 + 24 images)
+```
+
+An artificial network with saturating hidden values, tied logits, a fully pruned
+neuron and empty columns (the real model never produces these):
+
+```bash
+make sim-zs-edge
+```
+
+## RISC-V system (PicoRV32 + accelerator)
+
+One-time setup (PicoRV32 is a git submodule, the compiler turns C into RISC-V code):
 
 ```bash
 git submodule add https://github.com/YosysHQ/picorv32.git hardware/third_party/picorv32
+sudo apt install gcc-riscv64-unknown-elf
 ```
+
+Then, after `make export-sparse`:
+
+```bash
+make sim-pcpi    # the PCPI wrapper alone: handshake, foreign instructions, results
+make sim-soc     # CPU + accelerator run firmware/main.c on 100 images
+make sim-soc-ws  # same with the weight-skipping-only accelerator (comparison)
+```
+
+Expected last line of `make sim-soc`:
+
+```
+PASS: CPU + accelerator matched golden logits and predictions (100 images, 1000 logits)
+```
+
+| File | Content |
+|---|---|
+| `rtl/sparse_mlp_zs.v` | accelerator, skips zero weights and zero activations |
+| `rtl/sparsemac_pcpi.v` | PCPI wrapper: the custom instructions `SMAC.LDW/RUN/LOGIT/CYC` |
+| `tb/tb_sparse_mlp_zs.v` | golden images + stress tests of the accelerator |
+| `tb/tb_sparsemac_pcpi.v` | PCPI wrapper tested without a CPU |
+| `tb/tb_soc.v` | PicoRV32 + RAM + wrapper running the firmware |
+| `../firmware/` | C firmware, linker script, custom-instruction header |
 
 ## Naming rules
 

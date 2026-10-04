@@ -17,8 +17,10 @@ export it to hardware, and (in progress) build the Verilog accelerator.
 | MAC unit (`hardware/rtl/mac.v`) + testbench | Done |
 | Sparse dot-product engine (skips zero weights) + testbench | Done |
 | Control FSM + full inference in simulation | Done |
-| RISC-V integration (PicoRV32 + PCPI custom instruction) | Planned |
-| Cycle benchmark: dense vs sparse | Planned |
+| Zero-skipping accelerator (skips zero pixels and zero hidden values too) + stress tests | Done |
+| RISC-V integration (PicoRV32 + PCPI custom instructions) + C firmware | Done |
+| Cycle benchmark: CPU software vs accelerator (simulation) | Done |
+| Dense accelerator in simulation, FPGA build | Planned |
 
 See [docs/roadmap.md](docs/roadmap.md) for the detailed plan.
 
@@ -42,9 +44,12 @@ Average multiply-accumulates per image (measured on 100 test images):
 | Skip zero inputs | 9,347 | 5.4x |
 | Skip both | 2,077 | 24.5x |
 
-**Important:** these are counts of MAC operations, not hardware speedup.
-Finding the nonzero values and reading their indices also costs cycles. The
-real speedup will be measured in simulation and reported here.
+**Important:** the table above counts MAC operations. The measured hardware
+result (RTL simulation, 100 test images) is in
+[docs/results.md](docs/results.md): the zero-skipping accelerator needs about
+2,163 cycles per image, against 51,038 calculated for a dense engine and
+11,030 for the weight-skipping-only design. The remaining cycles over the
+2,077 useful MACs are pipeline start-up and the finish sweeps.
 
 Details and notes: [docs/results.md](docs/results.md).
 
@@ -73,6 +78,7 @@ rv-sparsemac/
 │   ├── verify_export.py
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
+├── firmware/                 C program for the RISC-V core + custom-instruction header
 └── hardware/
     ├── rtl/                  Verilog design files
     ├── tb/                   Verilog testbenches
@@ -100,6 +106,14 @@ make verify       # check hex files against golden vectors
 make sim-mac      # simulate the MAC unit
 make export-sparse  # sparse (index, value) lists
 make sim-sparse   # simulate the sparse dot-product engine
+make sim-mlp      # whole network, skips zero weights
+make sim-zs       # whole network, skips zero weights AND zero activations
+
+# 4. RISC-V system (one-time: git submodule add ... and sudo apt install gcc-riscv64-unknown-elf,
+#    see hardware/README.md)
+make sim-pcpi     # custom-instruction wrapper alone
+make sim-soc      # PicoRV32 + accelerator run the firmware on 100 images
+make report       # run everything and write the numbers into docs/results.md
 ```
 
 The trained models are already in `models/` and the hex files are already in
@@ -120,7 +134,8 @@ Note: `train_baseline.py` has no fixed random seed, so retraining gives a slight
 5. **Export** the weights as hex files together with golden outputs. The
    Verilog testbench must reproduce the golden outputs bit for bit.
 
-More in [docs/architecture.md](docs/architecture.md).
+More in [docs/architecture.md](docs/architecture.md) (the network) and
+[docs/hardware.md](docs/hardware.md) (the accelerator and the RISC-V system).
 
 ## License
 

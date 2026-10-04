@@ -103,3 +103,55 @@ Measured with `make sim-mlp` on the first 100 test images:
   dot-product engine alone (10,882), so the control FSM overhead is small.
 
 Zero pixels and zero hidden values are not skipped yet, only zero weights.
+
+## Hardware and RISC-V results (simulation)
+
+All numbers in this section were produced by `make report` from the simulation
+logs; none is typed by hand. Clock cycles of the RTL simulation, not FPGA timing.
+
+### Accelerator alone (start to done, 100 golden images)
+
+| Design | Cycles per image | Notes |
+|---|---|---|
+| Dense dot-product engine | 51,038 | calculated as (inputs + 3) cycles per neuron, not simulated |
+| `sparse_mlp.v`, skips zero weights | 11,030 | `make sim-mlp`, includes bias/ReLU/shift/argmax |
+| `sparse_mlp_zs.v`, skips zero weights and zero activations | 2,163 | `make sim-zs`, min 1,034, max 3,627 |
+
+- Useful MACs per image (nonzero pixel x nonzero weight, both layers): 2,077.
+  `sparse_mlp_zs.v` needs 86 cycles more than that for pipeline start-up and the two finish sweeps.
+- Speedup of `sparse_mlp_zs.v` over `sparse_mlp.v`: 5.10x. Over the calculated dense engine: 23.6x.
+- Data dependent: an all-zero image takes 280 cycles, an all-255 image 10,722 cycles (nothing to skip in the pixels).
+- Accuracy on these 100 images: 98%.
+- Correctness: 100 golden images bit-exact, plus 24 stress images against a dense
+  reference model, plus an artificial network with saturation, ties and empty
+  columns (`make sim-zs-edge`, 2,233 cycles per image there).
+
+### PicoRV32 + accelerator (`make sim-soc`, `make sim-soc-ws`)
+
+Per image, measured by the firmware with `rdcycle`. The CPU memory has one wait
+state per access. Software figures are averages over only 1 (dense) and 2 (skip zeros) images.
+
+| System | Cycles per image | Relative to dense software |
+|---|---|---|
+| CPU only, plain dense C | 2,187,884 | 1.0x |
+| CPU only, C that skips zero pixels | 462,345 | 4.7x |
+| CPU + `sparse_mlp.v` (zero weights), whole loop | 17,213 | 127x |
+| CPU + `sparse_mlp_zs.v` (zero weights and activations), whole loop | 8,347 | 262x |
+
+The accelerator rows include loading the image through `SMAC.LDW`, running, and
+reading the ten logits. Split for `sparse_mlp_zs.v`:
+
+| Part | Cycles per image |
+|---|---|
+| Load pixels (196 x `SMAC.LDW`) | 5,836 |
+| `SMAC.RUN` (waiting for the accelerator) | 2,174 |
+| Read 10 logits (`SMAC.LOGIT`) | 337 |
+| Accelerator compute only (`SMAC.CYC`) | 2,164 |
+
+- Speedup of the whole accelerated loop over the best software tried (skip zeros): 55.4x.
+- Speedup of the compute alone over that software: 214x.
+- Loading the image costs 70% of the accelerated loop. That is now the bottleneck, not the MACs.
+- Accuracy on 100 images through the CPU: 98/100. Software and accelerator logits
+  were compared by the firmware: 0 mismatches. The testbench also compared all 1000 logits with `golden_logits`.
+- Handshake tests of the custom instructions without a CPU: `make sim-pcpi` passes
+  (including instructions that must be ignored).

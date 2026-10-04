@@ -14,15 +14,19 @@
 - [x] Sparse dot-product engine: process only nonzero weights for one neuron
 - [x] Control FSM: load, compute, ReLU + shift, store
 - [x] Full fc1 + fc2 inference in simulation, matching the golden logits
+- [x] Zero skipping on the activation side too (`sparse_mlp_zs.v`, column-wise weights)
 
 ## Phase 3 - RISC-V integration
-- [ ] Clone PicoRV32 as a git submodule in `hardware/third_party/`
-- [ ] Study `picorv32_pcpi_mul` as a reference PCPI co-processor
-- [ ] Wrap the accelerator as a PCPI module (`SPARSEMAC rd, rs1, rs2`)
-- [ ] Test program (assembly or C) that runs MNIST inference on the core
+- [x] Clone PicoRV32 as a git submodule in `hardware/third_party/`
+- [x] Study `picorv32_pcpi_mul` as a reference PCPI co-processor
+- [x] Wrap the accelerator as a PCPI module (`SMAC.LDW`, `SMAC.RUN`, `SMAC.LOGIT`, `SMAC.CYC`)
+- [x] Test program (C) that runs MNIST inference on the core (`firmware/main.c`)
+- [ ] Run the system on an FPGA (block RAM instead of `$readmemh`, UART output)
+- [ ] Let the accelerator read the image from RAM itself (bus master) instead of `SMAC.LDW`
 
 ## Phase 4 - Benchmark and report
-- [ ] Cycle count: software loop vs dense accelerator vs sparse accelerator
+- [x] Cycle count: software loop vs weight-skipping vs zero-skipping accelerator (`make report`)
+- [ ] Dense accelerator in simulation (the dense number is calculated so far)
 - [ ] Plots of cycles and accuracy vs sparsity
 - [ ] Fair baseline: fine-tune the dense model for the same 5 epochs
 - [ ] Final write-up in `docs/`

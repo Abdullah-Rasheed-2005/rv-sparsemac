@@ -21,6 +21,14 @@
 #define LABELS_BASE   0x0001CB00   /* true digits, 1 byte per image */
 #define IMAGES_BASE   0x00020000   /* test images, 784 bytes each */
 
+/* ---- the same weights stored by column (CSC), for the sparse software baseline ---- */
+#define C1PTR_BASE    0x00034000   /* fc1 column pointers, uint16 x 785 */
+#define C1ROW_BASE    0x00034800   /* fc1 output neuron of each entry, 1 byte (max 10240 entries) */
+#define C1VAL_BASE    0x00037000   /* fc1 weight of each entry, int8 */
+#define C2PTR_BASE    0x00039800   /* fc2 column pointers, uint16 x 65 */
+#define C2ROW_BASE    0x00039900   /* fc2 output neuron of each entry, 1 byte (max 640 entries) */
+#define C2VAL_BASE    0x00039C00   /* fc2 weight of each entry, int8 */
+
 /* ---- memory-mapped "devices" of the testbench ---- */
 #define MMIO_CONSOLE  0x10000000   /* write a byte: it is printed */
 #define MMIO_RESULT   0x10000010   /* write a word: the testbench collects it */

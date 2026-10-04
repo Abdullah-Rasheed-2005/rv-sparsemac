@@ -45,6 +45,8 @@ def soc_numbers(text):
     d['all'] = find(r'all\s+\(total\):\s+(\d+)', text, 'all')
     d['s_n'] = find(r'skip-zeros images:\s+(\d+)', text, 'skip images')
     d['s_cyc'] = find(r'skip-zeros cycles \(total\):\s+(\d+)', text, 'skip cycles')
+    d['c_n'] = find(r'csc-sparse images:\s+(\d+)', text, 'csc images')
+    d['c_cyc'] = find(r'csc-sparse cycles \(total\):\s+(\d+)', text, 'csc cycles')
     d['d_n'] = find(r'dense images:\s+(\d+)', text, 'dense images')
     d['d_cyc'] = find(r'dense cycles \(total\):\s+(\d+)', text, 'dense cycles')
     d['mism'] = find(r'mismatches:\s+(\d+)', text, 'mismatches')
@@ -88,6 +90,7 @@ def results():
     w_all, w_cmp = W['all'] / n, W['acc'] / n
     sw_dense = Z['d_cyc'] / Z['d_n']
     sw_skip = Z['s_cyc'] / Z['s_n']
+    sw_csc = Z['c_cyc'] / Z['c_n']
 
     def f(x):
         return f'{x:,.0f}'
@@ -118,12 +121,14 @@ logs; none is typed by hand. Clock cycles of the RTL simulation, not FPGA timing
 ### PicoRV32 + accelerator (`make sim-soc`, `make sim-soc-ws`)
 
 Per image, measured by the firmware with `rdcycle`. The CPU memory has one wait
-state per access. Software figures are averages over only {Z['d_n']} (dense) and {Z['s_n']} (skip zeros) images.
+state per access. Software figures are averages over {Z['d_n']} (dense), {Z['s_n']} (skip zero pixels)
+and {Z['c_n']} (CSC) images.
 
 | System | Cycles per image | Relative to dense software |
 |---|---|---|
 | CPU only, plain dense C | {f(sw_dense)} | 1.0x |
 | CPU only, C that skips zero pixels | {f(sw_skip)} | {sw_dense / sw_skip:.1f}x |
+| CPU only, C with the accelerator's algorithm (CSC: skips zero weights and activations) | {f(sw_csc)} | {sw_dense / sw_csc:.1f}x |
 | CPU + `sparse_mlp.v` (zero weights), whole loop | {f(w_all)} | {sw_dense / w_all:.0f}x |
 | CPU + `sparse_mlp_zs.v` (zero weights and activations), whole loop | {f(z_all)} | {sw_dense / z_all:.0f}x |
 
@@ -137,8 +142,10 @@ reading the ten logits. Split for `sparse_mlp_zs.v`:
 | Read 10 logits (`SMAC.LOGIT`) | {f(Z['read'] / n)} |
 | Accelerator compute only (`SMAC.CYC`) | {f(z_cmp)} |
 
-- Speedup of the whole accelerated loop over the best software tried (skip zeros): {sw_skip / z_all:.1f}x.
-- Speedup of the compute alone over that software: {sw_skip / z_cmp:.0f}x.
+- Fair comparison (same algorithm and weight format in C on the CPU): the whole
+  accelerated loop is {sw_csc / z_all:.1f}x faster than the CSC software, the compute alone {sw_csc / z_cmp:.1f}x.
+- The larger ratios against the dense and skip-zero-pixels programs mostly measure a
+  better algorithm, not the hardware: the CSC software alone is already {sw_dense / sw_csc:.1f}x faster than dense C.
 - Loading the image costs {Z['load'] / Z['all'] * 100:.0f}% of the accelerated loop. That is now the bottleneck, not the MACs.
 - Accuracy on 100 images through the CPU: {Z['correct']}/{n}. Software and accelerator logits
   were compared by the firmware: {Z['mism']} mismatches. The testbench also compared all {n * 10} logits with `golden_logits`.

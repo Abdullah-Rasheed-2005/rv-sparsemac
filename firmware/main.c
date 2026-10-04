@@ -3,10 +3,13 @@
  * Phase 1 (hardware): for NHW test images
  *     load the pixels with SMAC.LDW, start with SMAC.RUN, read the logits with
  *     SMAC.LOGIT. The accuracy and the cycle counts are printed.
- * Phase 2 (software baseline): for NSW images run the SAME integer network in
- *     plain C on the CPU, in two flavours:
+ * Phase 2 (software baseline): run the SAME integer network in plain C on the
+ *     CPU, in three flavours:
  *       - dense:      every pixel times every weight (the obvious program),
- *       - skip zeros: skips zero pixels (a smarter program, still dense weights).
+ *       - skip zeros: skips zero pixels (a smarter program, still dense weights),
+ *       - CSC:        the accelerator's own algorithm (weights stored by column,
+ *                     zero inputs and zero weights are both skipped). This is
+ *                     the fair comparison: same work, CPU instead of hardware.
  *     The logits must be identical to the accelerator's, the cycles are compared.
  *
  * The network is the one of software/export_int8.py:
@@ -29,7 +32,10 @@
 #ifndef NSW_DENSE
 #define NSW_DENSE 1      /* images run by the plain dense software (slow!) */
 #endif
-#define NCMP 8           /* logits kept from the accelerator for comparison */
+#ifndef NSW_CSC
+#define NSW_CSC 100      /* images run by the CSC software (the accelerator's algorithm) */
+#endif
+#define NCMP 100         /* logits kept from the accelerator for comparison */
 
 /* ------------------------------------------------------------------ output */
 static void put_char(char c) { *(volatile uint32_t *)MMIO_CONSOLE = (uint32_t)c; }
@@ -134,6 +140,50 @@ static uint32_t sw_skip(const uint8_t *img, int32_t *logit)
     return best;
 }
 
+/* One layer of the accelerator's algorithm (see hardware/rtl/sparse_mlp_zs.v):
+ *     for every NONZERO input j:  for every NONZERO weight in column j:
+ *         acc[row] += x[j] * weight
+ * Column j owns the entries ptr[j] .. ptr[j+1]-1 (software/export_sparse.py). */
+static void layer_csc(const uint8_t *x, int n_in, const uint16_t *ptr,
+                      const uint8_t *row, const int8_t *val, int32_t *acc)
+{
+    for (int j = 0; j < n_in; j++) {
+        int32_t a = x[j];
+        if (a == 0) continue;
+        uint32_t end = ptr[j + 1];
+        for (uint32_t e = ptr[j]; e < end; e++)
+            acc[row[e]] += a * val[e];
+    }
+}
+
+/* Same network, same algorithm and same weight format as the accelerator. */
+static uint32_t sw_csc(const uint8_t *img, int32_t *logit)
+{
+    const int32_t *b1 = (const int32_t *)B1_BASE;
+    const int32_t *b2 = (const int32_t *)B2_BASE;
+    const uint32_t shift = *(const volatile uint8_t *)SHIFT_ADDR;
+    int32_t acc[64];
+    uint8_t hid[64];
+
+    for (int n = 0; n < 64; n++) acc[n] = b1[n];
+    layer_csc(img, 784, (const uint16_t *)C1PTR_BASE, (const uint8_t *)C1ROW_BASE,
+              (const int8_t *)C1VAL_BASE, acc);
+    for (int n = 0; n < 64; n++) {
+        int32_t a = acc[n];
+        if (a < 0) a = 0;
+        a >>= shift;
+        hid[n] = (uint8_t)(a > 127 ? 127 : a);
+    }
+
+    for (int o = 0; o < 10; o++) logit[o] = b2[o];
+    layer_csc(hid, 64, (const uint16_t *)C2PTR_BASE, (const uint8_t *)C2ROW_BASE,
+              (const int8_t *)C2VAL_BASE, logit);
+    uint32_t best = 0;
+    for (int o = 1; o < 10; o++)
+        if (logit[o] > logit[best]) best = (uint32_t)o;
+    return best;
+}
+
 /* -------------------------------------------------------------------- main */
 int main(void)
 {
@@ -209,7 +259,20 @@ int main(void)
             if (lg[c] != hw_logit[i][c]) mismatches++;
     }
 
+    uint32_t c_cyc = 0;
+    for (uint32_t i = 0; i < NSW_CSC && i < NCMP; i++) {
+        int32_t lg[10];
+        uint32_t c0 = rdcycle();
+        uint32_t pred = sw_csc(images + i * 784, lg);
+        c_cyc += rdcycle() - c0;
+        if (pred != hw_pred[i]) mismatches++;
+        for (int c = 0; c < 10; c++)
+            if (lg[c] != hw_logit[i][c]) mismatches++;
+    }
+
     put_str("== software on the CPU only ==\n");
+    put_line("csc-sparse images:           ", NSW_CSC);
+    put_line("csc-sparse cycles (total):   ", c_cyc);
     put_line("skip-zeros images:           ", NSW);
     put_line("skip-zeros cycles (total):   ", s_cyc);
     put_line("dense images:                ", NSW_DENSE);

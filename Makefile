@@ -119,7 +119,9 @@ sim-soc: fw build/layout.vh
 	iverilog -g2005 -Ibuild -o build/sim_soc $(SOC_SRC)
 	vvp build/sim_soc
 
-# same system, but the accelerator skips only zero weights (sparse_mlp.v)
+# same system, but the accelerator skips only zero weights (sparse_mlp.v).
+# The software baselines are the same as in sim-soc, so only 2 CSC images are run here (saves time).
+sim-soc-ws: FWDEFS += -DNSW_CSC=2
 sim-soc-ws: fw build/layout.vh
 	iverilog -g2005 -Ibuild -DWEIGHT_SKIP_ONLY -o build/sim_soc_ws $(SOC_SRC)
 	vvp build/sim_soc_ws

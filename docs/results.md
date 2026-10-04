@@ -130,14 +130,16 @@ logs; none is typed by hand. Clock cycles of the RTL simulation, not FPGA timing
 ### PicoRV32 + accelerator (`make sim-soc`, `make sim-soc-ws`)
 
 Per image, measured by the firmware with `rdcycle`. The CPU memory has one wait
-state per access. Software figures are averages over only 1 (dense) and 2 (skip zeros) images.
+state per access. Software figures are averages over 1 (dense), 2 (skip zero pixels)
+and 100 (CSC) images.
 
 | System | Cycles per image | Relative to dense software |
 |---|---|---|
-| CPU only, plain dense C | 2,187,884 | 1.0x |
-| CPU only, C that skips zero pixels | 462,345 | 4.7x |
-| CPU + `sparse_mlp.v` (zero weights), whole loop | 17,213 | 127x |
-| CPU + `sparse_mlp_zs.v` (zero weights and activations), whole loop | 8,347 | 262x |
+| CPU only, plain dense C | 2,187,920 | 1.0x |
+| CPU only, C that skips zero pixels | 462,416 | 4.7x |
+| CPU only, C with the accelerator's algorithm (CSC: skips zero weights and activations) | 164,210 | 13.3x |
+| CPU + `sparse_mlp.v` (zero weights), whole loop | 17,232 | 127x |
+| CPU + `sparse_mlp_zs.v` (zero weights and activations), whole loop | 8,366 | 262x |
 
 The accelerator rows include loading the image through `SMAC.LDW`, running, and
 reading the ten logits. Split for `sparse_mlp_zs.v`:
@@ -146,11 +148,13 @@ reading the ten logits. Split for `sparse_mlp_zs.v`:
 |---|---|
 | Load pixels (196 x `SMAC.LDW`) | 5,836 |
 | `SMAC.RUN` (waiting for the accelerator) | 2,174 |
-| Read 10 logits (`SMAC.LOGIT`) | 337 |
+| Read 10 logits (`SMAC.LOGIT`) | 356 |
 | Accelerator compute only (`SMAC.CYC`) | 2,164 |
 
-- Speedup of the whole accelerated loop over the best software tried (skip zeros): 55.4x.
-- Speedup of the compute alone over that software: 214x.
+- Fair comparison (same algorithm and weight format in C on the CPU): the whole
+  accelerated loop is 19.6x faster than the CSC software, the compute alone 75.9x.
+- The larger ratios against the dense and skip-zero-pixels programs mostly measure a
+  better algorithm, not the hardware: the CSC software alone is already 13.3x faster than dense C.
 - Loading the image costs 70% of the accelerated loop. That is now the bottleneck, not the MACs.
 - Accuracy on 100 images through the CPU: 98/100. Software and accelerator logits
   were compared by the firmware: 0 mismatches. The testbench also compared all 1000 logits with `golden_logits`.

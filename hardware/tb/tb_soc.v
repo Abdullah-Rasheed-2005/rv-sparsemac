@@ -130,6 +130,8 @@ module tb_soc;
 
     // ---------------- load memories ----------------
     reg [31:0] tmpw [0:63];
+    reg [15:0] tmpp [0:784];              // column pointers (16-bit words in the hex files)
+    integer    nz1, nz2;                  // number of nonzero weights in fc1 / fc2
     reg [31:0] gold_log  [0:MAX_IMG*10-1];
     reg [7:0]  gold_pred [0:MAX_IMG-1];
     integer i, j;
@@ -153,6 +155,28 @@ module tb_soc;
         for (i = 0; i < 10; i = i + 1)
             for (j = 0; j < 4; j = j + 1)
                 ram[`B2_BASE + 4*i + j] = tmpw[i][8*j +: 8];
+
+        // the weights stored by column (CSC), for the sparse software baseline.
+        // Pointers are 16-bit words: store them little-endian, 2 bytes each.
+        $readmemh("hardware/mem/fc1_csc_ptr.hex", tmpp, 0, 784);
+        nz1 = tmpp[784];
+        for (i = 0; i < 785; i = i + 1) begin
+            ram[`C1PTR_BASE + 2*i]     = tmpp[i][7:0];
+            ram[`C1PTR_BASE + 2*i + 1] = tmpp[i][15:8];
+        end
+        if (nz1 > 10240) $display("ERROR: tb_soc: fc1 has %0d nonzero weights, the RAM area holds 10240", nz1);
+        $readmemh("hardware/mem/fc1_csc_row.hex", ram, `C1ROW_BASE, `C1ROW_BASE + nz1 - 1);
+        $readmemh("hardware/mem/fc1_csc_val.hex", ram, `C1VAL_BASE, `C1VAL_BASE + nz1 - 1);
+
+        $readmemh("hardware/mem/fc2_csc_ptr.hex", tmpp, 0, 64);
+        nz2 = tmpp[64];
+        for (i = 0; i < 65; i = i + 1) begin
+            ram[`C2PTR_BASE + 2*i]     = tmpp[i][7:0];
+            ram[`C2PTR_BASE + 2*i + 1] = tmpp[i][15:8];
+        end
+        if (nz2 > 640) $display("ERROR: tb_soc: fc2 has %0d nonzero weights, the RAM area holds 640", nz2);
+        $readmemh("hardware/mem/fc2_csc_row.hex", ram, `C2ROW_BASE, `C2ROW_BASE + nz2 - 1);
+        $readmemh("hardware/mem/fc2_csc_val.hex", ram, `C2VAL_BASE, `C2VAL_BASE + nz2 - 1);
 
         $readmemh("hardware/mem/golden_logits.hex", gold_log);
         $readmemh("hardware/mem/golden_pred.txt",   gold_pred);

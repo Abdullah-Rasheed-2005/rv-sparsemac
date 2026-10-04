@@ -185,19 +185,22 @@ Defined once in `firmware/layout.h`; the Makefile turns it into
 | `0x0001CA00` | hidden shift |
 | `0x0001CB00` | true labels |
 | `0x00020000` | test images (784 bytes each) |
+| `0x00034000` / `0x00034800` / `0x00037000` | fc1 by column (CSC): pointers (uint16), rows, weights |
+| `0x00039800` / `0x00039900` / `0x00039C00` | fc2 by column (CSC): pointers (uint16), rows, weights |
 | `0x10000000` | console (write a byte = print it) |
 | `0x10000010` | result port (the firmware reports logits and predictions) |
 | `0x10000020` | exit (write the exit code) |
 
 The accelerator keeps its own weight memories (filled from `hardware/mem/*.hex`
-by `$readmemh`); the dense weights in RAM exist only for the software baseline.
+by `$readmemh`); the dense and CSC weights in RAM exist only for the software baselines.
 
 ### 5.3 What the firmware does
 
 1. For each of the 100 images: send the 196 pixel words with `SMAC.LDW`,
    `SMAC.RUN`, then ten `SMAC.LOGIT`.
-2. Run the same network in plain C on the CPU for a few images, in two ways
-   (dense; and skipping zero pixels) and compare logits with the accelerator.
+2. Run the same network in plain C on the CPU, in three ways, and compare the
+   logits with the accelerator: dense (1 image), skipping zero pixels (2 images),
+   and the accelerator's own algorithm with CSC weights (`sw_csc`, all 100 images).
 3. Print cycle counts measured with `rdcycle`.
 
 The testbench independently compares everything the firmware reports with
@@ -208,11 +211,13 @@ The testbench independently compares everything the firmware reports with
 - The CPU's memory has one wait state per access, so the CPU runs at roughly a
   third of an instruction per clock. This is realistic for a small core with
   SRAM and is the same for every program.
-- The dense software baseline is the obvious first program. The second baseline
-  already skips zero pixels, which is what a careful programmer would do, so the
-  accelerator is also compared against that.
-- Only a few images are run in software (a dense image takes millions of
-  simulated cycles), so those two numbers are averages over very few images.
+- The dense software baseline is the obvious first program. The second one
+  skips zero pixels. The third one (`sw_csc`) is the fair comparison: it runs the
+  accelerator's algorithm on the accelerator's weight format, so the remaining
+  speedup is what the hardware itself adds. Quote that number first.
+- The dense and skip-zero-pixels programs are run on very few images (a dense
+  image takes millions of simulated cycles), so those two numbers are rough.
+  The CSC software is run on all 100 images.
 - The accelerator numbers include the cost of sending the image through the
   custom instruction, which is a large part of the total (the CPU needs a load,
   an address calculation and the custom instruction for every 4 pixels). The

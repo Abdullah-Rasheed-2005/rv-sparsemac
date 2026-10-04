@@ -137,3 +137,9 @@ report:
 
 clean:
 	rm -rf build
+
+sim-dense:
+	$(PY) software/export_dense_lists.py
+	mkdir -p build
+	iverilog -o build/sim_dense hardware/tb/tb_dense_mlp.v hardware/rtl/sparse_mlp.v hardware/rtl/sparse_dot.v hardware/rtl/mac.v
+	vvp build/sim_dense

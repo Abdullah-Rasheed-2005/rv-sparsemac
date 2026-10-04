@@ -27,6 +27,7 @@
 //
 // Zero pixels and zero hidden values are NOT skipped yet. Only zero weights.
 module sparse_mlp #(
+    parameter DEPTH    = 16384,   // entries in each nonzero list (power of two)
     parameter FC1_PTR  = "hardware/mem/fc1_nz_ptr.hex",
     parameter FC1_IDX  = "hardware/mem/fc1_nz_idx.hex",
     parameter FC1_VAL  = "hardware/mem/fc1_nz_val.hex",
@@ -55,8 +56,6 @@ module sparse_mlp #(
     output reg  signed [31:0]   out_val,     // its value
     output reg  [3:0]           pred         // winning class, valid with done
 );
-    localparam DEPTH = 16384;   // entries in each nonzero list (2^14)
-
     // ---------------- ROMs ----------------
     reg [15:0] ptr1  [0:64];
     reg [15:0] idx1  [0:DEPTH-1];
@@ -125,8 +124,8 @@ module sparse_mlp #(
     reg [7:0]  w_word;
     reg [7:0]  x_data;
     always @(posedge clk) begin
-        idx_word <= layer ? idx2[nz_addr[13:0]] : idx1[nz_addr[13:0]];
-        w_word   <= layer ? val2[nz_addr[13:0]] : val1[nz_addr[13:0]];
+        idx_word <= layer ? idx2[(nz_addr % DEPTH)] : idx1[(nz_addr % DEPTH)];
+        w_word   <= layer ? val2[(nz_addr % DEPTH)] : val1[(nz_addr % DEPTH)];
         x_data   <= layer ? hid[x_addr[5:0]]    : img[x_addr];
     end
     wire [9:0]        nz_idx = idx_word[9:0];

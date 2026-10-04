@@ -65,7 +65,31 @@
 //   answer for an all-zero image.)
 //
 // The result is bit-exact with sparse_mlp.v and with golden_logits.
+//
+// ---------------------------------------------------------------------------
+// Bounded run time (optional)
+// ---------------------------------------------------------------------------
+// The run time above depends on the image: more nonzero pixels, more cycles.
+// Two inputs make it predictable:
+//
+//   budget (16 bit)  0 = no limit (the behaviour described above).
+//                    Otherwise layer 1 may spend at most 'budget' cycles on
+//                    columns. A column of n nonzero weights costs n cycles, but
+//                    never less than 3 (the front end needs 3 cycles per column).
+//                    A column is started only if it still fits into the budget.
+//                    The first column that does not fit ENDS layer 1: the
+//                    remaining inputs are dropped. Inputs are visited in the
+//                    order they were written, so the most useful inputs must
+//                    be written first (software/export_budget.py does that).
+//                    Layer 2 is small and always runs completely.
+//   const_time       1 = 'done' comes exactly budget + PAD cycles after 'start'
+//                    for EVERY image (needs budget != 0). The run time then
+//                    tells nothing about the image.
+//
+// The same rule is implemented in software/budget_lib.py (truncate with
+// column_cycles), which produces the golden values for tb_zs_budget.v.
 module sparse_mlp_zs #(
+    parameter PAD      = 800,   // const_time: cycles after the budget (finish sweeps + all of layer 2)
     parameter FC1_PTR  = "hardware/mem/fc1_csc_ptr.hex",
     parameter FC1_ROW  = "hardware/mem/fc1_csc_row.hex",
     parameter FC1_VAL  = "hardware/mem/fc1_csc_val.hex",
@@ -80,6 +104,9 @@ module sparse_mlp_zs #(
     input  wire                 rst,
 
     input  wire                 start,
+
+    input  wire [15:0]          budget,      // layer-1 cycle budget, 0 = no limit
+    input  wire                 const_time,  // 1 = done exactly budget + PAD cycles after start
 
     // write port of the image (pixels must come in order 0..783)
     input  wire                 img_we,
@@ -147,6 +174,7 @@ module sparse_mlp_zs #(
     localparam S_IDLE = 2'd0;
     localparam S_RUN  = 2'd1;          // stream columns through the MAC
     localparam S_FIN  = 2'd2;          // finish sweep: bias, ReLU, shift, store
+    localparam S_PAD  = 2'd3;          // const_time only: wait until budget + PAD cycles have passed
 
     reg [1:0]         state;
     reg               layer;           // 0 = fc1, 1 = fc2
@@ -161,6 +189,11 @@ module sparse_mlp_zs #(
     reg        desc_valid;             // a column descriptor is waiting
     reg [15:0] d_lo, d_hi;
     reg [7:0]  d_a;
+
+    // run-time budget (layer 1)
+    reg [16:0] used;                   // cycles already granted to columns of this layer
+    reg        cut;                    // a column did not fit: no more columns in this layer
+    reg [16:0] t_run;                  // clock cycles since start
 
     // issue stage
     reg [15:0] cur_e, cur_hi;          // entries still to issue: cur_e .. cur_hi-1
@@ -191,8 +224,15 @@ module sparse_mlp_zs #(
     wire        last_issue  = issue && (cur_next == cur_hi);
     // load the next descriptor when the current column is empty or being finished
     wire        take        = run && desc_valid && (!issue || last_issue);
-    wire        fetch_ok    = run && (f_st == 2'd0) && ({1'b0, k} < {1'b0, a_cnt}) && (!desc_valid || take);
-    wire        drained     = run && (f_st == 2'd0) && (k >= a_cnt) && !desc_valid && !issue && !v1;
+    wire        fetch_ok    = run && (f_st == 2'd0) && ({1'b0, k} < {1'b0, a_cnt}) && (!desc_valid || take) && !cut;
+    wire        drained     = run && (f_st == 2'd0) && ((k >= a_cnt) || cut) && !desc_valid && !issue && !v1;
+
+    // ---------------- budget check (valid in front-end state 2, when the pointers have arrived) ----------------
+    wire [15:0] col_len   = phi_q - plo_q;                                    // nonzero weights in this column
+    wire [16:0] col_cost  = (col_len < 16'd3) ? 17'd3 : {1'b0, col_len};      // cycles this column costs
+    wire [16:0] used_next = used + col_cost;
+    wire        misfit    = (budget != 16'd0) && !layer && (used_next > {1'b0, budget});
+    wire [16:0] t_target  = {1'b0, budget} + PAD;
 
     // ---------------- MAC stage (acc[row] += a * w) ----------------
     wire [5:0]          mrow = erow_q[5:0];
@@ -259,9 +299,15 @@ module sparse_mlp_zs #(
             v1         <= 1'b0;
             a1         <= 8'd0;
             touched    <= 64'd0;
+            used       <= 17'd0;
+            cut        <= 1'b0;
+            t_run      <= 17'd0;
         end else begin
             done      <= 1'b0;
             out_valid <= 1'b0;
+
+            // cycle counter of the current run (set to 0 by start, see S_IDLE)
+            if (state != S_IDLE) t_run <= t_run + 17'd1;
 
             // pipeline registers between issue stage and MAC stage
             v1 <= issue;
@@ -290,6 +336,9 @@ module sparse_mlp_zs #(
                         cur_e      <= 16'd0;
                         cur_hi     <= 16'd0;
                         touched    <= 64'd0;
+                        used       <= 17'd0;
+                        cut        <= 1'b0;
+                        t_run      <= 17'd0;
                         state      <= S_RUN;
                     end
                 end
@@ -301,10 +350,15 @@ module sparse_mlp_zs #(
                         2'd0: if (fetch_ok) f_st <= 2'd1;           // address k is presented now
                         2'd1: begin a_hold <= av_q; f_st <= 2'd2; end // (j, a) arrived, pointers are read now
                         2'd2: begin                                  // pointers arrived
-                            d_lo       <= plo_q;
-                            d_hi       <= phi_q;
-                            d_a        <= a_hold;
-                            desc_valid <= 1'b1;
+                            if (misfit) begin
+                                cut        <= 1'b1;                  // over budget: this and all later columns are dropped
+                            end else begin
+                                d_lo       <= plo_q;
+                                d_hi       <= phi_q;
+                                d_a        <= a_hold;
+                                desc_valid <= 1'b1;
+                                used       <= used_next;
+                            end
                             k          <= k + 11'd1;
                             f_st       <= 2'd0;
                         end
@@ -343,6 +397,8 @@ module sparse_mlp_zs #(
                             cur_e      <= 16'd0;
                             cur_hi     <= 16'd0;
                             touched    <= 64'd0;
+                            used       <= 17'd0;
+                            cut        <= 1'b0;
                             state      <= S_RUN;
                         end else begin
                             neuron <= neuron + 7'd1;
@@ -356,13 +412,28 @@ module sparse_mlp_zs #(
                         best_idx  <= next_idx;
                         if (neuron == 7'd9) begin
                             pred  <= next_idx;
-                            busy  <= 1'b0;
-                            done  <= 1'b1;
                             a_cnt <= 11'd0;       // the image is consumed: a new start without
-                            state <= S_IDLE;      // new pixels sees an all-zero image
+                                                  // new pixels sees an all-zero image
+                            if (const_time && (budget != 16'd0)) begin
+                                state <= S_PAD;   // the answer is ready, but 'done' waits
+                            end else begin
+                                busy  <= 1'b0;
+                                done  <= 1'b1;
+                                state <= S_IDLE;
+                            end
                         end else begin
                             neuron <= neuron + 7'd1;
                         end
+                    end
+                end
+
+                // -------------------------------------------------------
+                S_PAD: begin
+                    // const_time: every run ends at the same cycle, whatever the image was
+                    if (t_run >= t_target) begin
+                        busy  <= 1'b0;
+                        done  <= 1'b1;
+                        state <= S_IDLE;
                     end
                 end
 

@@ -74,6 +74,7 @@ module sparsemac_pcpi #(
         if (ZERO_SKIP) begin : g_zs
             sparse_mlp_zs u_nn (
                 .clk(clk), .rst(rst), .start(nn_start),
+                .budget(16'd0), .const_time(1'b0),          // no run-time budget here yet
                 .img_we(img_we), .img_waddr(img_waddr), .img_wdata(img_wdata),
                 .busy(nn_busy), .done(nn_done),
                 .out_valid(out_valid), .out_idx(out_idx), .out_val(out_val),

@@ -24,6 +24,15 @@ def column_cost(W1):
     return (W1 != 0).sum(axis=0).astype(np.int64)
 
 
+def column_cycles(W1):
+    """Clock cycles the accelerator needs for each input pixel when it is nonzero.
+    A column of n nonzero weights takes n cycles, but never less than 3, because
+    the front end of sparse_mlp_zs.v needs 3 cycles to prepare a column. This is
+    the cost the hardware budget counts, so a budget in these units bounds the
+    run time of layer 1 in clock cycles (plus a few cycles of start-up)."""
+    return np.maximum(column_cost(W1), 3)
+
+
 def order_raster(W1):
     """The order used today: pixel 0, 1, 2, ..., 783."""
     return np.arange(W1.shape[1])
@@ -78,9 +87,10 @@ def dynamic_order(X, W1):
     return np.argsort(-(np.asarray(X, dtype=np.int64) * l1), axis=1, kind='stable')
 
 
-def accuracy_at(X, Y, net, order, budget):
-    """Accuracy (percent) and average MACs used with a hard budget."""
+def accuracy_at(X, Y, net, order, budget, cost_fn=column_cost):
+    """Accuracy (percent) and average cost used with a hard budget.
+    cost_fn = column_cost counts MACs, cost_fn = column_cycles counts clock cycles."""
     W1, B1, W2, B2, shift = net
-    Xk, used = truncate(X, order, column_cost(W1), budget)
+    Xk, used = truncate(X, order, cost_fn(W1), budget)
     pred = forward(Xk, W1, B1, W2, B2, shift).argmax(axis=1)
     return 100.0 * (pred == Y).mean(), used.mean()

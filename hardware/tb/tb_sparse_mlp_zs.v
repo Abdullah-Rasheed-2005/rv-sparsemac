@@ -53,6 +53,7 @@ module tb_sparse_mlp_zs;
         .SHIFT_FILE({`MEMDIR, "/hidden_shift.hex"})
     ) dut (
         .clk(clk), .rst(rst), .start(start),
+        .budget(16'd0), .const_time(1'b0),
         .img_we(img_we), .img_waddr(img_waddr), .img_wdata(img_wdata),
         .busy(busy), .done(done),
         .out_valid(out_valid), .out_idx(out_idx), .out_val(out_val),

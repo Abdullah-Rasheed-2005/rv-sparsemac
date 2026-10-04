@@ -2,7 +2,7 @@ SHELL := /bin/bash
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
 
 help:
 	@echo "Targets:"
@@ -21,6 +21,7 @@ help:
 	@echo "  sim-mlp     simulate the whole network, all 100 golden images (needs iverilog)"
 	@echo "  sim-zs      same, but also skipping zero pixels / hidden values + stress tests"
 	@echo "  sim-zs-edge sim-zs on an artificial network with ties, saturation, empty columns"
+	@echo "  sim-zs-budget  bounded run time: hard layer-1 cycle budget and constant time (budget-aware model)"
 	@echo "  sim-dense   same engine as sim-mlp but fed every weight (measured dense baseline)"
 	@echo "  fw          compile the RISC-V firmware (needs gcc-riscv64-unknown-elf)"
 	@echo "  report      run all hardware/RISC-V simulations and write the numbers into docs/results.md"
@@ -84,6 +85,15 @@ sim-zs-edge:
 	mkdir -p build
 	iverilog -DMEMDIR='"build/edge_mem"' -o build/sim_zs_edge hardware/tb/tb_sparse_mlp_zs.v hardware/rtl/sparse_mlp_zs.v
 	vvp build/sim_zs_edge
+
+# Bounded run time. Needs models/budget_fc1_80.pth and models/budget_order.txt
+# (written by software/budget_experiment.py into build/, then copied into models/).
+BUDGET ?= 1700
+sim-zs-budget:
+	$(PY) software/export_budget.py $(BUDGET)
+	mkdir -p build
+	iverilog -o build/sim_zs_budget hardware/tb/tb_zs_budget.v hardware/rtl/sparse_mlp_zs.v
+	vvp build/sim_zs_budget
 
 # ---------------- RISC-V firmware (needs: sudo apt install gcc-riscv64-unknown-elf) ----------------
 RVPREFIX ?= riscv64-unknown-elf-

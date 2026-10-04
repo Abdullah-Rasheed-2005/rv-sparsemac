@@ -3,6 +3,8 @@
  * Phase 1 (hardware): for NHW test images
  *     load the pixels with SMAC.LDW, start with SMAC.RUN, read the logits with
  *     SMAC.LOGIT. The accuracy and the cycle counts are printed.
+ * Phase 1b (only with -DBUDGET_RUN, `make sim-soc-budget`): the same images again
+ *     with a layer-1 cycle budget (SMAC.CFG), and once more with constant time.
  * Phase 2 (software baseline): run the SAME integer network in plain C on the
  *     CPU, in three flavours:
  *       - dense:      every pixel times every weight (the obvious program),
@@ -184,6 +186,65 @@ static uint32_t sw_csc(const uint8_t *img, int32_t *logit)
     return best;
 }
 
+/* ------------------------------------------------------ bounded run time */
+#ifdef BUDGET_RUN
+struct pass_stats { uint32_t load, run, read, acc, acc_min, acc_max, correct; };
+
+/* All NHW images through the accelerator with the configuration set by SMAC.CFG.
+ * The logits and predictions are reported to the testbench like in phase 1. */
+static void hw_pass(const uint8_t *images, const uint8_t *labels, struct pass_stats *s)
+{
+    s->load = s->run = s->read = s->acc = s->acc_max = s->correct = 0;
+    s->acc_min = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < NHW; i++) {
+        const uint32_t *px = (const uint32_t *)(images + i * 784);
+
+        uint32_t c0 = rdcycle();
+        #pragma GCC unroll 4
+        for (uint32_t w = 0; w < 196; w++)
+            smac_ldw(w * 4, px[w]);
+        uint32_t c1 = rdcycle();
+
+        uint32_t pred = smac_run();
+        uint32_t c2 = rdcycle();
+
+        for (uint32_t c = 0; c < 10; c++)
+            send_result((uint32_t)smac_logit(c));
+        send_result(pred);
+        uint32_t c3 = rdcycle();
+
+        uint32_t a = smac_cycles();
+        s->load += c1 - c0;
+        s->run  += c2 - c1;
+        s->read += c3 - c2;
+        s->acc  += a;
+        if (a < s->acc_min) s->acc_min = a;
+        if (a > s->acc_max) s->acc_max = a;
+        if (pred == labels[i]) s->correct++;
+    }
+}
+
+/* The slowest possible image for a zero-skipping design: every pixel is 255.
+ * Returns the accelerator cycles (SMAC.CYC). Nothing is reported to the testbench. */
+static uint32_t hw_all255(void)
+{
+    for (uint32_t w = 0; w < 196; w++)
+        smac_ldw(w * 4, 0xFFFFFFFFu);
+    (void)smac_run();
+    return smac_cycles();
+}
+
+static void put_pass(const char *title, const struct pass_stats *s)
+{
+    put_str(title);
+    put_line("  correct:                   ", s->correct);
+    put_line("  accelerator cycles, total: ", s->acc);
+    put_line("  accelerator cycles, min:   ", s->acc_min);
+    put_line("  accelerator cycles, max:   ", s->acc_max);
+    put_line("  whole loop cycles, total:  ", s->load + s->run + s->read);
+}
+#endif
+
 /* -------------------------------------------------------------------- main */
 int main(void)
 {
@@ -234,6 +295,34 @@ int main(void)
     put_line("cycles, read logits (total): ", t_read);
     put_line("cycles, accelerator (total): ", t_acc);
     put_line("cycles, all         (total): ", t_load + t_run + t_read);
+
+#ifdef BUDGET_RUN
+    /* -------------------------------- phase 1b: the same images with a run-time budget */
+    {
+        const uint32_t budget = *(const volatile uint16_t *)BUDGET_ADDR;
+        struct pass_stats pb, pc;
+
+        uint32_t worst_free = hw_all255();            /* no budget yet */
+
+        smac_cfg(budget, 0);                          /* hard budget */
+        hw_pass(images, labels, &pb);
+        uint32_t worst_budget = hw_all255();
+
+        smac_cfg(budget, 1);                          /* hard budget + constant time */
+        hw_pass(images, labels, &pc);
+        uint32_t worst_const = hw_all255();
+
+        smac_cfg(0, 0);                               /* back to no limit */
+
+        put_str("== bounded run time (SMAC.CFG) ==\n");
+        put_line("layer-1 budget (cycles):     ", budget);
+        put_pass("with budget:\n", &pb);
+        put_pass("with budget, constant time:\n", &pc);
+        put_line("all-255 image, no budget:     ", worst_free);
+        put_line("all-255 image, budget:        ", worst_budget);
+        put_line("all-255 image, constant time: ", worst_const);
+    }
+#endif
 
     /* ------------------------------------------------ phase 2: software    */
     uint32_t mismatches = 0;

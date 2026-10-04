@@ -4,7 +4,7 @@
 // instruction it does not know, it puts the instruction word and the values of
 // rs1 and rs2 on the PCPI wires and waits. A co-processor that recognises the
 // instruction answers with a result (rd) when it is finished. This module
-// recognises four custom instructions in the RISC-V "custom-0" opcode space
+// recognises five custom instructions in the RISC-V "custom-0" opcode space
 // (opcode 0x0B, funct7 = 0, R-type) and drives the accelerator with them.
 //
 //   31      25 24  20 19  15 14  12 11   7 6      0
@@ -26,7 +26,13 @@
 //     3     SMAC.CYC        rd = accelerator clock cycles of the last run,
 //                           counted from the start edge to the done edge.
 //
-//   funct3 4..7 and funct7 != 0 are NOT claimed: the core treats them as
+//     4     SMAC.CFG        bound the run time (zero-skipping design only).
+//                           rs1[15:0] = layer-1 cycle budget, 0 = no limit.
+//                           rs2[0]    = 1: constant time (every SMAC.RUN takes
+//                           budget + PAD + 1 accelerator cycles). rd gets 0.
+//                           The setting stays until the next SMAC.CFG or reset.
+//
+//   funct3 5..7 and funct7 != 0 are NOT claimed: the core treats them as
 //   illegal instructions (trap), so the opcode space stays free for later.
 //
 // How the handshake works (PicoRV32 side):
@@ -37,8 +43,11 @@
 //
 // ZERO_SKIP = 1 uses sparse_mlp_zs (skips zero weights AND zero activations),
 // ZERO_SKIP = 0 uses sparse_mlp    (skips zero weights only).
-// The weight memories are loaded from hardware/mem/*.hex by $readmemh, so the
-// simulation must be started from the repository root.
+// The weight memories are loaded by $readmemh from the folder MEMDIR (default
+// hardware/mem), so the simulation must be started from the repository root.
+`ifndef MEMDIR
+  `define MEMDIR "hardware/mem"
+`endif
 module sparsemac_pcpi #(
     parameter ZERO_SKIP = 1
 ) (
@@ -57,7 +66,7 @@ module sparsemac_pcpi #(
     // ---------------- instruction decode ----------------
     wire        op_match = pcpi_valid && (pcpi_insn[6:0] == 7'b0001011) && (pcpi_insn[31:25] == 7'b0000000);
     wire [2:0]  f3       = pcpi_insn[14:12];
-    wire        is_ours  = op_match && !f3[2];             // funct3 = 0..3
+    wire        is_ours  = op_match && (f3 <= 3'd4);       // funct3 = 0..4
 
     // ---------------- the accelerator ----------------
     reg         nn_start;
@@ -70,18 +79,42 @@ module sparsemac_pcpi #(
     wire [3:0]  nn_pred;
     wire        rst = !resetn;
 
+    // run-time configuration, written by SMAC.CFG
+    reg  [15:0] cfg_budget;
+    reg         cfg_ct;
+
     generate
         if (ZERO_SKIP) begin : g_zs
-            sparse_mlp_zs u_nn (
+            sparse_mlp_zs #(
+                .FC1_PTR   ({`MEMDIR, "/fc1_csc_ptr.hex"}),
+                .FC1_ROW   ({`MEMDIR, "/fc1_csc_row.hex"}),
+                .FC1_VAL   ({`MEMDIR, "/fc1_csc_val.hex"}),
+                .FC1_BIAS  ({`MEMDIR, "/fc1_bias.hex"}),
+                .FC2_PTR   ({`MEMDIR, "/fc2_csc_ptr.hex"}),
+                .FC2_ROW   ({`MEMDIR, "/fc2_csc_row.hex"}),
+                .FC2_VAL   ({`MEMDIR, "/fc2_csc_val.hex"}),
+                .FC2_BIAS  ({`MEMDIR, "/fc2_bias.hex"}),
+                .SHIFT_FILE({`MEMDIR, "/hidden_shift.hex"})
+            ) u_nn (
                 .clk(clk), .rst(rst), .start(nn_start),
-                .budget(16'd0), .const_time(1'b0),          // no run-time budget here yet
+                .budget(cfg_budget), .const_time(cfg_ct),
                 .img_we(img_we), .img_waddr(img_waddr), .img_wdata(img_wdata),
                 .busy(nn_busy), .done(nn_done),
                 .out_valid(out_valid), .out_idx(out_idx), .out_val(out_val),
                 .pred(nn_pred)
             );
         end else begin : g_ws
-            sparse_mlp u_nn (
+            sparse_mlp #(
+                .FC1_PTR   ({`MEMDIR, "/fc1_nz_ptr.hex"}),
+                .FC1_IDX   ({`MEMDIR, "/fc1_nz_idx.hex"}),
+                .FC1_VAL   ({`MEMDIR, "/fc1_nz_val.hex"}),
+                .FC1_BIAS  ({`MEMDIR, "/fc1_bias.hex"}),
+                .FC2_PTR   ({`MEMDIR, "/fc2_nz_ptr.hex"}),
+                .FC2_IDX   ({`MEMDIR, "/fc2_nz_idx.hex"}),
+                .FC2_VAL   ({`MEMDIR, "/fc2_nz_val.hex"}),
+                .FC2_BIAS  ({`MEMDIR, "/fc2_bias.hex"}),
+                .SHIFT_FILE({`MEMDIR, "/hidden_shift.hex"})
+            ) u_nn (
                 .clk(clk), .rst(rst), .start(nn_start),
                 .img_we(img_we), .img_waddr(img_waddr), .img_wdata(img_wdata),
                 .busy(nn_busy), .done(nn_done),
@@ -142,6 +175,8 @@ module sparsemac_pcpi #(
             resp     <= 32'd0;
             run_cnt  <= 32'd0;
             cyc_last <= 32'd0;
+            cfg_budget <= 16'd0;
+            cfg_ct     <= 1'b0;
         end else begin
             case (st)
                 W_IDLE: if (is_ours) begin
@@ -162,9 +197,15 @@ module sparsemac_pcpi #(
                             resp <= logit_sel;
                             st   <= W_RESP;
                         end
-                        default: begin                    // SMAC.CYC
+                        3'd3: begin                       // SMAC.CYC
                             resp <= cyc_last;
                             st   <= W_RESP;
+                        end
+                        default: begin                    // SMAC.CFG (funct3 = 4)
+                            cfg_budget <= pcpi_rs1[15:0];
+                            cfg_ct     <= pcpi_rs2[0];
+                            resp       <= 32'd0;
+                            st         <= W_RESP;
                         end
                     endcase
                 end

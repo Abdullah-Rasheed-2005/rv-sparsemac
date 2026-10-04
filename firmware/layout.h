@@ -18,6 +18,7 @@
 #define B1_BASE       0x0001C800   /* fc1 bias, int32 x 64 */
 #define B2_BASE       0x0001C900   /* fc2 bias, int32 x 10 */
 #define SHIFT_ADDR    0x0001CA00   /* hidden right-shift, 1 byte */
+#define BUDGET_ADDR   0x0001CA10   /* layer-1 cycle budget, uint16 (only loaded for sim-soc-budget) */
 #define LABELS_BASE   0x0001CB00   /* true digits, 1 byte per image */
 #define IMAGES_BASE   0x00020000   /* test images, 784 bytes each */
 

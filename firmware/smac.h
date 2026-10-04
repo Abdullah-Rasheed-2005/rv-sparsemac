@@ -1,4 +1,4 @@
-/* smac.h - The four custom instructions of the sparse accelerator
+/* smac.h - The five custom instructions of the sparse accelerator
  *
  * They are encoded with the assembler directive .insn (R-type):
  *     .insn r  opcode, funct3, funct7, rd, rs1, rs2
@@ -37,6 +37,13 @@ static inline uint32_t smac_cycles(void)
     uint32_t c;
     asm volatile (".insn r 0x0b, 3, 0, %0, zero, zero" : "=r"(c));
     return c;
+}
+
+/* SMAC.CFG: bound the run time. budget = layer-1 cycle budget (0 = no limit),
+ * const_time = 1 makes every SMAC.RUN take exactly the same number of cycles. */
+static inline void smac_cfg(uint32_t budget, uint32_t const_time)
+{
+    asm volatile (".insn r 0x0b, 4, 0, zero, %0, %1" :: "r"(budget), "r"(const_time));
 }
 
 /* rdcycle written as a raw CSR read (csrrs rd, cycle, x0) so that it assembles

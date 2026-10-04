@@ -7,7 +7,7 @@
 //   - the co-processor raises pcpi_wait at once for its own instructions
 //     (PicoRV32 traps "illegal instruction" if nobody does within 16 cycles),
 //   - it stays silent for instructions that are not its own (other opcode,
-//     funct7 != 0, funct3 = 4..7), so the core can still trap on them,
+//     funct7 != 0, funct3 = 5..7), so the core can still trap on them,
 //   - pcpi_ready is a single cycle, and only while pcpi_valid is high,
 //   - SMAC.LOGIT with a number above 9 gives 0,
 //   - SMAC.CYC equals the number of cycles the accelerator was busy,
@@ -112,6 +112,7 @@ module tb_sparsemac_pcpi;
     integer img, w, c, busy_cycles, e0;
     reg [31:0] word;
     reg [31:0] pred_r, cyc_r;
+    reg [31:0] ct1, ct2;        // SMAC.CYC of two different images in constant-time mode
 
     // count the cycles the accelerator is busy (hierarchical reference into the wrapper)
     always @(posedge clk) begin
@@ -153,7 +154,7 @@ module tb_sparsemac_pcpi;
         repeat (3) @(posedge clk);
 
         // ---- instructions that are not ours must be ignored ----
-        exec_foreign(insn(7'd0, 3'd4, 7'h0b), "funct3=4");
+        exec_foreign(insn(7'd0, 3'd5, 7'h0b), "funct3=5");
         exec_foreign(insn(7'd0, 3'd7, 7'h0b), "funct3=7");
         exec_foreign(insn(7'd1, 3'd1, 7'h0b), "funct7=1");
         exec_foreign(insn(7'd0, 3'd1, 7'h2b), "custom-1 opcode");
@@ -193,6 +194,30 @@ module tb_sparsemac_pcpi;
         if (result !== 32'd0) begin errors = errors + 1; $display("FAIL: LOGIT -1 = %h, expected 0", result); end
         exec(insn(7'd0, 3'd2, 7'h0b), 32'h00000100, 0);
         if (result !== 32'd0) begin errors = errors + 1; $display("FAIL: LOGIT 256 = %h, expected 0", result); end
+
+        // ---- SMAC.CFG: run-time budget and constant time ----
+        exec(insn(7'd0, 3'd4, 7'h0b), 32'd500, 32'd1);           // budget 500 cycles, constant time
+        if (ready_cycles != 1 || !wait_seen || !got_wr || result !== 32'd0) begin
+            errors = errors + 1;
+            $display("FAIL: SMAC.CFG handshake (ready=%0d wait=%0d wr=%0d rd=%h)", ready_cycles, wait_seen, got_wr, result);
+        end
+        if (ZERO_SKIP) begin
+            run_image(3);  exec(insn(7'd0, 3'd3, 7'h0b), 0, 0);  ct1 = result;
+            run_image(5);  exec(insn(7'd0, 3'd3, 7'h0b), 0, 0);  ct2 = result;
+            $display("constant time (budget 500): SMAC.CYC = %0d and %0d for two different images", ct1, ct2);
+            if (ct1 !== ct2) begin
+                errors = errors + 1;
+                $display("FAIL: constant time, the two images took a different number of cycles");
+            end
+            exec(insn(7'd0, 3'd4, 7'h0b), 32'd500, 32'd0);       // budget only
+            run_image(3);  exec(insn(7'd0, 3'd3, 7'h0b), 0, 0);
+            $display("budget 500, not constant time: SMAC.CYC = %0d", result);
+            if (result > 32'd1300) begin
+                errors = errors + 1;
+                $display("FAIL: budget 500 but the run took %0d cycles (bound 1300)", result);
+            end
+        end
+        exec(insn(7'd0, 3'd4, 7'h0b), 32'd0, 32'd0);             // back to no limit (image 7 below checks it)
 
         // ---- RUN right after RUN (no new pixels): zero-skip design consumes the image,
         //      the weight-skip design keeps it. Only check that it finishes and answers. ----

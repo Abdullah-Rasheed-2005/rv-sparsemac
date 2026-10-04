@@ -25,6 +25,9 @@
 // Run from the repository root with `make sim-soc` (or `make sim-soc-ws`).
 `timescale 1ns/1ps
 `include "layout.vh"          // generated from firmware/layout.h by the Makefile
+`ifndef MEMDIR
+  `define MEMDIR "hardware/mem"
+`endif
 
 module tb_soc;
 `ifdef WEIGHT_SKIP_ONLY
@@ -33,6 +36,11 @@ module tb_soc;
     localparam ZERO_SKIP = 1;
 `endif
     localparam MAX_IMG = 100;
+`ifdef BUDGET_RUN
+    localparam NPASS = 3;                 // no budget, budget, budget + constant time
+`else
+    localparam NPASS = 1;
+`endif
 
     reg clk = 0;
     reg resetn = 0;
@@ -87,9 +95,9 @@ module tb_soc;
     // ---------------- RAM and test devices ----------------
     reg [7:0] ram [0:`RAM_SIZE-1];
 
-    reg [31:0] res [0:MAX_IMG*11-1];      // logits (10) + prediction, per image
+    reg [31:0] res [0:NPASS*MAX_IMG*11-1];      // logits (10) + prediction, per image and pass
     integer    res_cnt = 0;
-    reg [31:0] res_time [0:MAX_IMG*11-1]; // clock cycle of every result word
+    reg [31:0] res_time [0:NPASS*MAX_IMG*11-1]; // clock cycle of every result word
     integer    cycle_no = 0;
     reg        exited = 0;
     reg [31:0] exit_code = 0;
@@ -112,7 +120,7 @@ module tb_soc;
                 case (mem_addr)
                     `MMIO_CONSOLE: $write("%c", mem_wdata[7:0]);
                     `MMIO_RESULT: begin
-                        if (res_cnt < MAX_IMG*11) begin
+                        if (res_cnt < NPASS*MAX_IMG*11) begin
                             res[res_cnt]      <= mem_wdata;
                             res_time[res_cnt] <= cycle_no;
                             res_cnt           <= res_cnt + 1;
@@ -134,52 +142,61 @@ module tb_soc;
     integer    nz1, nz2;                  // number of nonzero weights in fc1 / fc2
     reg [31:0] gold_log  [0:MAX_IMG*10-1];
     reg [7:0]  gold_pred [0:MAX_IMG-1];
+    reg [31:0] gold_logb  [0:MAX_IMG*10-1];   // with the run-time budget (BUDGET_RUN only)
+    reg [7:0]  gold_predb [0:MAX_IMG-1];
     integer i, j;
 
     initial begin
         for (i = 0; i < `RAM_SIZE; i = i + 1) ram[i] = 8'h00;
 
         $readmemh("build/fw/fw.hex",                 ram);
-        $readmemh("hardware/mem/fc1_weights.hex",    ram, `W1_BASE,     `W1_BASE + 50176 - 1);
-        $readmemh("hardware/mem/fc2_weights.hex",    ram, `W2_BASE,     `W2_BASE + 640 - 1);
-        $readmemh("hardware/mem/hidden_shift.hex",   ram, `SHIFT_ADDR,  `SHIFT_ADDR);
-        $readmemh("hardware/mem/test_labels.txt",    ram, `LABELS_BASE, `LABELS_BASE + MAX_IMG - 1);
-        $readmemh("hardware/mem/test_images.hex",    ram, `IMAGES_BASE, `IMAGES_BASE + MAX_IMG*784 - 1);
+        $readmemh({`MEMDIR, "/fc1_weights.hex"},    ram, `W1_BASE,     `W1_BASE + 50176 - 1);
+        $readmemh({`MEMDIR, "/fc2_weights.hex"},    ram, `W2_BASE,     `W2_BASE + 640 - 1);
+        $readmemh({`MEMDIR, "/hidden_shift.hex"},   ram, `SHIFT_ADDR,  `SHIFT_ADDR);
+        $readmemh({`MEMDIR, "/test_labels.txt"},    ram, `LABELS_BASE, `LABELS_BASE + MAX_IMG - 1);
+        $readmemh({`MEMDIR, "/test_images.hex"},    ram, `IMAGES_BASE, `IMAGES_BASE + MAX_IMG*784 - 1);
 
         // the biases are 32-bit words in the hex files: store them little-endian
-        $readmemh("hardware/mem/fc1_bias.hex", tmpw, 0, 63);
+        $readmemh({`MEMDIR, "/fc1_bias.hex"}, tmpw, 0, 63);
         for (i = 0; i < 64; i = i + 1)
             for (j = 0; j < 4; j = j + 1)
                 ram[`B1_BASE + 4*i + j] = tmpw[i][8*j +: 8];
-        $readmemh("hardware/mem/fc2_bias.hex", tmpw, 0, 9);
+        $readmemh({`MEMDIR, "/fc2_bias.hex"}, tmpw, 0, 9);
         for (i = 0; i < 10; i = i + 1)
             for (j = 0; j < 4; j = j + 1)
                 ram[`B2_BASE + 4*i + j] = tmpw[i][8*j +: 8];
 
         // the weights stored by column (CSC), for the sparse software baseline.
         // Pointers are 16-bit words: store them little-endian, 2 bytes each.
-        $readmemh("hardware/mem/fc1_csc_ptr.hex", tmpp, 0, 784);
+        $readmemh({`MEMDIR, "/fc1_csc_ptr.hex"}, tmpp, 0, 784);
         nz1 = tmpp[784];
         for (i = 0; i < 785; i = i + 1) begin
             ram[`C1PTR_BASE + 2*i]     = tmpp[i][7:0];
             ram[`C1PTR_BASE + 2*i + 1] = tmpp[i][15:8];
         end
         if (nz1 > 10240) $display("ERROR: tb_soc: fc1 has %0d nonzero weights, the RAM area holds 10240", nz1);
-        $readmemh("hardware/mem/fc1_csc_row.hex", ram, `C1ROW_BASE, `C1ROW_BASE + nz1 - 1);
-        $readmemh("hardware/mem/fc1_csc_val.hex", ram, `C1VAL_BASE, `C1VAL_BASE + nz1 - 1);
+        $readmemh({`MEMDIR, "/fc1_csc_row.hex"}, ram, `C1ROW_BASE, `C1ROW_BASE + nz1 - 1);
+        $readmemh({`MEMDIR, "/fc1_csc_val.hex"}, ram, `C1VAL_BASE, `C1VAL_BASE + nz1 - 1);
 
-        $readmemh("hardware/mem/fc2_csc_ptr.hex", tmpp, 0, 64);
+        $readmemh({`MEMDIR, "/fc2_csc_ptr.hex"}, tmpp, 0, 64);
         nz2 = tmpp[64];
         for (i = 0; i < 65; i = i + 1) begin
             ram[`C2PTR_BASE + 2*i]     = tmpp[i][7:0];
             ram[`C2PTR_BASE + 2*i + 1] = tmpp[i][15:8];
         end
         if (nz2 > 640) $display("ERROR: tb_soc: fc2 has %0d nonzero weights, the RAM area holds 640", nz2);
-        $readmemh("hardware/mem/fc2_csc_row.hex", ram, `C2ROW_BASE, `C2ROW_BASE + nz2 - 1);
-        $readmemh("hardware/mem/fc2_csc_val.hex", ram, `C2VAL_BASE, `C2VAL_BASE + nz2 - 1);
+        $readmemh({`MEMDIR, "/fc2_csc_row.hex"}, ram, `C2ROW_BASE, `C2ROW_BASE + nz2 - 1);
+        $readmemh({`MEMDIR, "/fc2_csc_val.hex"}, ram, `C2VAL_BASE, `C2VAL_BASE + nz2 - 1);
 
-        $readmemh("hardware/mem/golden_logits.hex", gold_log);
-        $readmemh("hardware/mem/golden_pred.txt",   gold_pred);
+        $readmemh({`MEMDIR, "/golden_logits.hex"}, gold_log);
+        $readmemh({`MEMDIR, "/golden_pred.txt"},   gold_pred);
+`ifdef BUDGET_RUN
+        $readmemh({`MEMDIR, "/golden_logits_b.hex"}, gold_logb);
+        $readmemh({`MEMDIR, "/golden_pred_b.txt"},   gold_predb);
+        $readmemh({`MEMDIR, "/budget.hex"}, tmpp, 0, 0);
+        ram[`BUDGET_ADDR]     = tmpp[0][7:0];
+        ram[`BUDGET_ADDR + 1] = tmpp[0][15:8];
+`endif
 
         if (ZERO_SKIP) $display("accelerator: sparse_mlp_zs (skips zero weights and zero activations)");
         else           $display("accelerator: sparse_mlp (skips zero weights only)");
@@ -188,7 +205,9 @@ module tb_soc;
     end
 
     // ---------------- finish and check ----------------
-    integer img, c, nimg, errors, pred_errors, span;
+    integer img, c, nimg, errors, pred_errors, span, ps, base;
+    reg [31:0] exp_log;
+    reg [7:0]  exp_pred;
 
     always @(posedge clk) begin
         if (resetn && trap) begin
@@ -198,28 +217,36 @@ module tb_soc;
         if (exited) begin
             $display("\n--- testbench ---");
             $display("firmware exit code: %0d", exit_code);
-            nimg = res_cnt / 11;
+            nimg = res_cnt / 11 / NPASS;          // images per pass
             errors = 0; pred_errors = 0;
-            for (img = 0; img < nimg; img = img + 1) begin
-                for (c = 0; c < 10; c = c + 1)
-                    if (res[img*11 + c] !== gold_log[img*10 + c]) begin
-                        errors = errors + 1;
-                        if (errors <= 10)
-                            $display("FAIL img=%0d class=%0d got=%0d expected=%0d", img, c,
-                                     $signed(res[img*11 + c]), $signed(gold_log[img*10 + c]));
+            // pass 0: no budget (golden_logits). passes 1 and 2: with the budget (golden_logits_b).
+            for (ps = 0; ps < NPASS; ps = ps + 1) begin
+                for (img = 0; img < nimg; img = img + 1) begin
+                    base = (ps*nimg + img) * 11;
+                    for (c = 0; c < 10; c = c + 1) begin
+                        exp_log = (ps == 0) ? gold_log[img*10 + c] : gold_logb[img*10 + c];
+                        if (res[base + c] !== exp_log) begin
+                            errors = errors + 1;
+                            if (errors <= 10)
+                                $display("FAIL pass=%0d img=%0d class=%0d got=%0d expected=%0d", ps, img, c,
+                                         $signed(res[base + c]), $signed(exp_log));
+                        end
                     end
-                if (res[img*11 + 10] !== {24'd0, gold_pred[img]}) begin
-                    pred_errors = pred_errors + 1;
-                    $display("FAIL img=%0d pred=%0d expected=%0d", img, res[img*11 + 10], gold_pred[img]);
+                    exp_pred = (ps == 0) ? gold_pred[img] : gold_predb[img];
+                    if (res[base + 10] !== {24'd0, exp_pred}) begin
+                        pred_errors = pred_errors + 1;
+                        $display("FAIL pass=%0d img=%0d pred=%0d expected=%0d", ps, img, res[base + 10], exp_pred);
+                    end
                 end
             end
+            if (NPASS > 1) $display("passes checked: %0d (no budget, budget, budget + constant time)", NPASS);
             $display("images reported by the CPU: %0d", nimg);
             $display("total simulated clock cycles: %0d", cycle_no);
             if (nimg > 1) begin
                 span = res_time[(nimg-1)*11 + 10] - res_time[10];
                 $display("average per image, whole loop (load + run + read): %0d cycles", span / (nimg - 1));
             end
-            if (exit_code == 0 && errors == 0 && pred_errors == 0 && nimg > 0)
+            if (exit_code == 0 && errors == 0 && pred_errors == 0 && nimg > 0 && res_cnt == NPASS*nimg*11)
                 $display("PASS: CPU + accelerator matched golden logits and predictions (%0d images, %0d logits)",
                          nimg, nimg*10);
             else

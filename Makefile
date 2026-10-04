@@ -2,7 +2,7 @@ SHELL := /bin/bash
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
 
 help:
 	@echo "Targets:"
@@ -22,6 +22,7 @@ help:
 	@echo "  sim-zs      same, but also skipping zero pixels / hidden values + stress tests"
 	@echo "  sim-zs-edge sim-zs on an artificial network with ties, saturation, empty columns"
 	@echo "  sim-zs-budget  bounded run time: hard layer-1 cycle budget and constant time (budget-aware model)"
+	@echo "  sim-soc-budget PicoRV32 + accelerator with the budget set by SMAC.CFG (budget-aware model)"
 	@echo "  sim-dense   same engine as sim-mlp but fed every weight (measured dense baseline)"
 	@echo "  fw          compile the RISC-V firmware (needs gcc-riscv64-unknown-elf)"
 	@echo "  report      run all hardware/RISC-V simulations and write the numbers into docs/results.md"
@@ -135,6 +136,14 @@ sim-soc-ws: FWDEFS += -DNSW_CSC=2
 sim-soc-ws: fw build/layout.vh
 	iverilog -g2005 -Ibuild -DWEIGHT_SKIP_ONLY -o build/sim_soc_ws $(SOC_SRC)
 	vvp build/sim_soc_ws
+
+# PicoRV32 + accelerator with the budget-aware model: no budget, budget, budget + constant time.
+# The weights, images and golden values come from build/budget_mem (software/export_budget.py).
+sim-soc-budget: FWDEFS += -DBUDGET_RUN -DNSW_CSC=2
+sim-soc-budget: fw build/layout.vh
+	$(PY) software/export_budget.py $(BUDGET)
+	iverilog -g2005 -Ibuild -DBUDGET_RUN -DMEMDIR='"build/budget_mem"' -o build/sim_soc_budget $(SOC_SRC)
+	vvp build/sim_soc_budget
 
 # Runs every simulation, keeps the logs, then writes docs/results.md from the logs (takes several minutes).
 # 'set -o pipefail' makes a failing simulation stop the report.

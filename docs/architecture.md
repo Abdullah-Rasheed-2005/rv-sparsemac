@@ -47,7 +47,7 @@ activation to make it a positive signed number.
 Weight zeros can be removed ahead of time by storing only the nonzero weights
 with their positions. Activation zeros must be detected while running.
 
-## 4. Planned hardware
+## 4. Hardware
 
 ```
 +--------------------+   custom instruction   +-------------------------+
@@ -65,11 +65,13 @@ know, it sends it out on the PCPI signals (`pcpi_valid`, `pcpi_insn`,
 `pcpi_rs1`, `pcpi_rs2`). The accelerator answers with `pcpi_wr`, `pcpi_rd`,
 `pcpi_wait` and `pcpi_ready`.
 
-The planned custom instruction is `SPARSEMAC rd, rs1, rs2` in the RISC-V
-custom-0 opcode space.
+The core talks to the accelerator through custom instructions: `SMAC.LDW`
+(load image words), `SMAC.RUN` (start and wait), `SMAC.LOGIT` (read one logit)
+and `SMAC.CYC` (read the accelerator's cycle count). Details are in
+[hardware.md](hardware.md).
 
-Status: only the MAC unit exists today. Everything else in this section is a
-plan and may change.
+Status: everything in this section is built and simulated (RTL simulation with
+PicoRV32). There is no FPGA synthesis yet.
 
 ## 5. Verification method
 

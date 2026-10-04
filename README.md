@@ -6,7 +6,8 @@ attached to a RISC-V core as a custom instruction.
 The idea: after pruning, most weights of a neural network are zero, and most
 MNIST pixels are zero too. A MAC unit that **skips the zeros** does much less
 work. This project builds the full chain: train a model, prune and quantize it,
-export it to hardware, and (in progress) build the Verilog accelerator.
+export it to hardware, build the Verilog accelerator and run it on a RISC-V
+core (in simulation).
 
 ## Status
 
@@ -79,6 +80,7 @@ rv-sparsemac/
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
 ├── firmware/                 C program for the RISC-V core + custom-instruction header
+├── scripts/                  phase3_docs.py: writes the measured numbers into docs/results.md
 └── hardware/
     ├── rtl/                  Verilog design files
     ├── tb/                   Verilog testbenches
@@ -109,8 +111,9 @@ make sim-sparse   # simulate the sparse dot-product engine
 make sim-mlp      # whole network, skips zero weights
 make sim-zs       # whole network, skips zero weights AND zero activations
 
-# 4. RISC-V system (one-time: git submodule add ... and sudo apt install gcc-riscv64-unknown-elf,
-#    see hardware/README.md)
+# 4. RISC-V system. One-time setup: the PicoRV32 submodule and the RISC-V compiler
+#    git submodule update --init      (or clone with --recurse-submodules)
+#    sudo apt install gcc-riscv64-unknown-elf
 make sim-pcpi     # custom-instruction wrapper alone
 make sim-soc      # PicoRV32 + accelerator run the firmware on 100 images
 make report       # run everything and write the numbers into docs/results.md

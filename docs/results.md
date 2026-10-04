@@ -71,7 +71,7 @@ also fine-tune the baseline for 5 epochs. This is on the to-do list.
 | Skip both | 2,077 | 24.5x |
 
 These are operation counts, not cycle counts. Hardware speedup will be
-measured in simulation and added here.
+measured in simulation, see the sections below.
 
 ## Sparse dot-product engine (simulation)
 

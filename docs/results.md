@@ -137,12 +137,13 @@ and 100 (CSC) images.
 |---|---|---|
 | CPU only, plain dense C | 2,187,920 | 1.0x |
 | CPU only, C that skips zero pixels | 462,416 | 4.7x |
-| CPU only, C with the accelerator's algorithm (CSC: skips zero weights and activations) | 164,210 | 13.3x |
+| CPU only, C with the accelerator's algorithm (CSC: skips zero weights and activations) | 163,694 | 13.4x |
 | CPU + `sparse_mlp.v` (zero weights), whole loop | 17,232 | 127x |
 | CPU + `sparse_mlp_zs.v` (zero weights and activations), whole loop | 8,366 | 262x |
+| CPU + `sparse_mlp_zs.v`, image fetched by the accelerator (`SMAC.RUNM`), whole loop | 3,592 | 609x |
 
-The accelerator rows include loading the image through `SMAC.LDW`, running, and
-reading the ten logits. Split for `sparse_mlp_zs.v`:
+The accelerator rows include loading the image, running, and reading the ten
+logits. Split for `sparse_mlp_zs.v` with `SMAC.LDW`:
 
 | Part | Cycles per image |
 |---|---|
@@ -152,10 +153,13 @@ reading the ten logits. Split for `sparse_mlp_zs.v`:
 | Accelerator compute only (`SMAC.CYC`) | 2,164 |
 
 - Fair comparison (same algorithm and weight format in C on the CPU): the whole
-  accelerated loop is 19.6x faster than the CSC software, the compute alone 75.9x.
+  accelerated loop is 19.6x faster than the CSC software, the compute alone 75.6x.
 - The larger ratios against the dense and skip-zero-pixels programs mostly measure a
-  better algorithm, not the hardware: the CSC software alone is already 13.3x faster than dense C.
-- Loading the image costs 70% of the accelerated loop. That is now the bottleneck, not the MACs.
+  better algorithm, not the hardware: the CSC software alone is already 13.4x faster than dense C.
+- Loading the image costs 70% of the accelerated loop with `SMAC.LDW`.
+- With `SMAC.RUNM` the accelerator reads the image from RAM itself: 3,592 cycles for the whole loop,
+  2.3x faster than with `SMAC.LDW` and 45.6x faster than the CSC software. The instruction
+  itself takes 3,344 cycles, of which 1,180 are fetching and ordering the pixels.
 - Accuracy on 100 images through the CPU: 98/100. Software and accelerator logits
   were compared by the firmware: 0 mismatches. The testbench also compared all 1000 logits with `golden_logits`.
 - Handshake tests of the custom instructions without a CPU: `make sim-pcpi` passes
@@ -175,7 +179,8 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
 | Accelerator cycles per image, average | 1,319 | 1,274 | 1,801 |
 | Accelerator cycles, slowest of the 100 test images | 2,041 | 1,532 | 1,801 |
 | Accelerator cycles, all-255 image (slowest possible input) | 5,898 | 1,356 | 1,801 |
-| Whole loop on PicoRV32 per image (load + run + read) | 7,522 | 7,362 | 7,889 |
+| Whole loop on PicoRV32, pixels sent with `SMAC.LDW` | 7,522 | 6,581 | 7,108 |
+| Whole loop on PicoRV32, image fetched by the accelerator (`SMAC.RUNM`) | - | 2,706 | 3,233 |
 
 - The budget costs 0.04 points of accuracy. It cuts the slowest possible input from
   5,898 to 1,356 cycles (4.3x) and the average from 1,319 to 1,274 cycles.
@@ -189,8 +194,15 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
   with the budget only: minimum 801, maximum 1,532.
   Constant time costs 41% more cycles than the budget alone.
 - All-255 image through the CPU (`SMAC.CYC`): 5,898 without a budget, 1,356 with the budget,
-  1,801 in constant time. The 3 passes of the SoC simulation were checked against the golden values.
-- Limits of these numbers. Loading and reading cost 6,192 cycles per image whatever the budget is, so the
-  whole loop gains little on average; the gain is in the worst case. The images in RAM are already stored
-  most-useful-first: a real system has to apply that order while loading, which is not measured here.
+  1,801 in constant time. The 5 passes of the SoC simulation were checked against the golden values.
+- With `SMAC.LDW` the CPU spends 6,192 cycles per image on sending pixels and reading logits, whatever the
+  budget is, and the images in RAM must already be stored most-useful-first.
+- With `SMAC.RUNM` the accelerator reads the image from RAM itself (normal pixel order) and applies the
+  order: 1,180 cycles for every image, the same for all of them. The whole loop then takes
+  2,706 cycles on average (minimum 2,233, maximum 2,964) with the budget.
+  In constant time the CPU measures 3,233 to 3,233 cycles for the whole loop over 100 images,
+  and the all-255 image takes 2,981 instruction cycles (2,536 with the budget only).
+  So the bound and the constant time cover the whole inference, not only the accelerator.
+- The loader made 39,592 bus reads and waited 202 cycles in total for the CPU (its one prefetch per instruction).
+- Limits: `SMAC.RUNM` spends about as many cycles on fetching and ordering as on computing for this small network.
   MNIST only.

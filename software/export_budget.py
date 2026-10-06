@@ -18,7 +18,8 @@ written by the same code path as the edge model), plus
     budget.hex            the layer-1 cycle budget used for the golden values (4 hex digits)
     golden_logits_b.hex   logits of the 100 test images WITH that budget (8 hex digits)
     golden_pred_b.txt     predicted digit WITH that budget
-    order.hex             the pixel order (4 hex digits per line), for firmware / loaders
+    order.hex             the pixel order (4 hex digits per line), used by the SMAC.RUNM loader
+    test_images_raster.hex  the same test images in normal pixel order (input of SMAC.RUNM)
 
 Run from the repository root:
     python3 software/export_budget.py            (budget 1000, 90 % pruned model)
@@ -71,7 +72,8 @@ def write_dir(out, net, order, X, Y, budget, sparsity=80):
     w32('fc1_bias.hex', B1)
     w8('fc2_weights.hex', W2)
     w32('fc2_bias.hex', B2)
-    w8('test_images.hex', Xp)
+    w8('test_images.hex', Xp)                 # already in input order (for tb_zs_budget.v and SMAC.LDW)
+    w8('test_images_raster.hex', X)           # normal pixel order (the loader of SMAC.RUNM orders them itself)
     (out / 'test_labels.txt').write_text('\n'.join(str(int(v)) for v in Y) + '\n')
     (out / 'golden_logits.txt').write_text(''.join(' '.join(str(int(v)) for v in r) + '\n' for r in logits))
     (out / 'golden_pred.txt').write_text('\n'.join(str(int(v)) for v in logits.argmax(axis=1)) + '\n')

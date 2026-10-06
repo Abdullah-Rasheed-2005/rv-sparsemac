@@ -22,13 +22,13 @@
 - [x] Wrap the accelerator as a PCPI module (`SMAC.LDW`, `SMAC.RUN`, `SMAC.LOGIT`, `SMAC.CYC`)
 - [x] Test program (C) that runs MNIST inference on the core (`firmware/main.c`)
 - [ ] Run the system on an FPGA (block RAM instead of `$readmemh`, UART output)
-- [ ] Let the accelerator read the image from RAM itself (bus master) instead of `SMAC.LDW`
+- [x] Let the accelerator read the image from RAM itself (bus master, `SMAC.RUNM`) instead of `SMAC.LDW`
 
 ## Phase 3b - Bounded run time
 - [x] Software study: accuracy with a hard layer-1 budget, fixed input order, budget-aware fine-tuning
 - [x] Budget and constant-time mode in `sparse_mlp_zs.v`, bit-exact against the software rule
 - [x] `SMAC.CFG` instruction, SoC simulation with the budget set by the CPU
-- [ ] Bus-master loader that applies the input order (bounds the whole loop, not only the accelerator)
+- [x] Bus-master loader that applies the input order (`SMAC.RUNM`): the bound and the constant time cover the whole instruction
 - [x] 3 random seeds; other ways to guarantee the same worst case (`docs/budget_study.md`)
 - [x] Pruning and the budget together; hardware model = 90 % pruned, budget 1,000 (`docs/budget_pareto.md`)
 - [ ] Second dataset (Fashion-MNIST)

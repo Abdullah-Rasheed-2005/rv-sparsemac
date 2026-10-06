@@ -195,4 +195,10 @@ write_hex(MEM_DIR / 'golden_fc2_acc.hex', acc2.flatten(), 8)
 write_hex(MEM_DIR / 'hidden_shift.hex', [shift], 2)
 write_hex(MEM_DIR / 'golden_logits.hex', golden_logits.flatten(), 8)
 
+# Input order for the image loader (SMAC.RUNM): input k = pixel order[k].
+# The normal model uses the pixels as they are (0, 1, 2, ...). export_budget.py
+# writes its own order.hex before calling this script, so an existing file is kept.
+if not (MEM_DIR / 'order.hex').exists():
+    write_hex(MEM_DIR / 'order.hex', range(784), 4)
+
 print(f'Export done -> {MEM_DIR}')

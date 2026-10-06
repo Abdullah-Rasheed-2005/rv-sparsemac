@@ -7,7 +7,7 @@
 //   - the co-processor raises pcpi_wait at once for its own instructions
 //     (PicoRV32 traps "illegal instruction" if nobody does within 16 cycles),
 //   - it stays silent for instructions that are not its own (other opcode,
-//     funct7 != 0, funct3 = 5..7), so the core can still trap on them,
+//     funct7 != 0, funct3 = 6..7), so the core can still trap on them,
 //   - pcpi_ready is a single cycle, and only while pcpi_valid is high,
 //   - SMAC.LOGIT with a number above 9 gives 0,
 //   - SMAC.CYC equals the number of cycles the accelerator was busy,
@@ -27,12 +27,20 @@ module tb_sparsemac_pcpi;
     wire        pcpi_wr, pcpi_wait, pcpi_ready;
     wire [31:0] pcpi_rd;
 
+    // memory port of the image loader (SMAC.RUNM). The "memory" here is img_mem:
+    // address a = byte a of the test images. Two clock cycles per access.
+    wire        ld_valid;
+    wire [31:0] ld_addr;
+    reg  [31:0] ld_rdata = 0;
+    reg         ld_ready = 0;
+
     sparsemac_pcpi #(.ZERO_SKIP(ZERO_SKIP)) dut (
         .clk(clk), .resetn(resetn),
         .pcpi_valid(pcpi_valid), .pcpi_insn(pcpi_insn),
         .pcpi_rs1(pcpi_rs1), .pcpi_rs2(pcpi_rs2),
         .pcpi_wr(pcpi_wr), .pcpi_rd(pcpi_rd),
-        .pcpi_wait(pcpi_wait), .pcpi_ready(pcpi_ready)
+        .pcpi_wait(pcpi_wait), .pcpi_ready(pcpi_ready),
+        .ld_valid(ld_valid), .ld_addr(ld_addr), .ld_rdata(ld_rdata), .ld_ready(ld_ready)
     );
 
     // R-type instruction word: funct7 rs2 rs1 funct3 rd opcode
@@ -110,9 +118,18 @@ module tb_sparsemac_pcpi;
     reg [7:0]  gold_pred [0:99];
 
     integer img, w, c, busy_cycles, e0;
+
+    always @(posedge clk) begin
+        ld_ready <= 1'b0;
+        if (ld_valid && !ld_ready) begin
+            ld_ready <= 1'b1;
+            ld_rdata <= {img_mem[ld_addr + 3], img_mem[ld_addr + 2], img_mem[ld_addr + 1], img_mem[ld_addr]};
+        end
+    end
     reg [31:0] word;
     reg [31:0] pred_r, cyc_r;
     reg [31:0] ct1, ct2;        // SMAC.CYC of two different images in constant-time mode
+    reg [31:0] lc1, lc2;        // cycles spent before the accelerator starts, two different images
 
     // count the cycles the accelerator is busy (hierarchical reference into the wrapper)
     always @(posedge clk) begin
@@ -154,7 +171,7 @@ module tb_sparsemac_pcpi;
         repeat (3) @(posedge clk);
 
         // ---- instructions that are not ours must be ignored ----
-        exec_foreign(insn(7'd0, 3'd5, 7'h0b), "funct3=5");
+        exec_foreign(insn(7'd0, 3'd6, 7'h0b), "funct3=6");
         exec_foreign(insn(7'd0, 3'd7, 7'h0b), "funct3=7");
         exec_foreign(insn(7'd1, 3'd1, 7'h0b), "funct7=1");
         exec_foreign(insn(7'd0, 3'd1, 7'h2b), "custom-1 opcode");
@@ -218,6 +235,37 @@ module tb_sparsemac_pcpi;
             end
         end
         exec(insn(7'd0, 3'd4, 7'h0b), 32'd0, 32'd0);             // back to no limit (image 7 below checks it)
+
+        // ---- SMAC.RUNM: the wrapper fetches the image itself (order.hex of hardware/mem = normal order) ----
+        for (img = 8; img < 12; img = img + 1) begin
+            exec(insn(7'd0, 3'd5, 7'h0b), img * 784, 0);         // rs1 = address of the image
+            if (ready_cycles != 1 || !wait_seen || !got_wr) begin
+                errors = errors + 1;
+                $display("FAIL: SMAC.RUNM handshake (ready=%0d wait=%0d wr=%0d)", ready_cycles, wait_seen, got_wr);
+            end
+            pred_r = result;
+            exec(insn(7'd0, 3'd3, 7'h0b), 0, 0);                 // SMAC.CYC = whole instruction
+            cyc_r = result;
+            if (img == 8) lc1 = cyc_r - busy_cycles;
+            if (img == 9) lc2 = cyc_r - busy_cycles;
+            for (c = 0; c < 10; c = c + 1) begin
+                exec(insn(7'd0, 3'd2, 7'h0b), c, 0);
+                if (result !== gold_log[img*10 + c]) begin
+                    errors = errors + 1;
+                    if (errors < 10) $display("FAIL SMAC.RUNM img=%0d class=%0d got=%0d expected=%0d",
+                                              img, c, $signed(result), $signed(gold_log[img*10 + c]));
+                end
+            end
+            if (pred_r !== {24'd0, gold_pred[img]}) begin
+                errors = errors + 1;
+                $display("FAIL SMAC.RUNM img=%0d pred=%0d expected=%0d", img, pred_r, gold_pred[img]);
+            end
+        end
+        $display("SMAC.RUNM: 4 images matched; fetching + ordering took %0d and %0d cycles for two different images", lc1, lc2);
+        if (lc1 !== lc2) begin
+            errors = errors + 1;
+            $display("FAIL: the loading time of SMAC.RUNM depends on the image");
+        end
 
         // ---- RUN right after RUN (no new pixels): zero-skip design consumes the image,
         //      the weight-skip design keeps it. Only check that it finishes and answers. ----

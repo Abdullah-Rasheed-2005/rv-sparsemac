@@ -8,8 +8,8 @@
 #ifndef LAYOUT_H
 #define LAYOUT_H
 
-/* ---- RAM: 256 KB at address 0 ---- */
-#define RAM_SIZE      0x00040000
+/* ---- RAM: 512 KB at address 0 ---- */
+#define RAM_SIZE      0x00080000
 #define STACK_TOP     0x00010000   /* firmware: code + data + stack live below 64 KB */
 
 /* ---- data copied into RAM by the testbench ---- */
@@ -29,6 +29,9 @@
 #define C2PTR_BASE    0x00039800   /* fc2 column pointers, uint16 x 65 */
 #define C2ROW_BASE    0x00039900   /* fc2 output neuron of each entry, 1 byte (max 640 entries) */
 #define C2VAL_BASE    0x00039C00   /* fc2 weight of each entry, int8 */
+
+/* ---- the test images in normal pixel order, read by the accelerator itself (SMAC.RUNM) ---- */
+#define RASTER_BASE   0x00040000   /* 784 bytes each */
 
 /* ---- memory-mapped "devices" of the testbench ---- */
 #define MMIO_CONSOLE  0x10000000   /* write a byte: it is printed */

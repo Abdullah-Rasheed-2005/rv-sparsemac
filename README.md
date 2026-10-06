@@ -23,7 +23,8 @@ core (in simulation).
 | Cycle benchmark: CPU software vs accelerator (simulation) | Done |
 | Dense reference in simulation (same engine, nothing skipped) | Done |
 | Bounded run time: hard cycle budget + constant-time mode (`SMAC.CFG`), budget-aware model | Done |
-| Accelerator loads the image itself (bus master), FPGA build | Planned |
+| Accelerator loads the image itself (second bus master, `SMAC.RUNM`) | Done |
+| FPGA build | Planned |
 
 See [docs/roadmap.md](docs/roadmap.md) for the detailed plan.
 
@@ -155,7 +156,10 @@ Measured on the 10,000 test images (layer-1 cycles, exact hardware arithmetic):
 | **90 % pruned, budget 1,000** | **96.81%** | **857** | **1,000** |
 | pruning alone until the worst case is 1,000 (605 weights left) | 87.70% | - | 1,000 |
 
-In constant-time mode every image takes exactly the same number of cycles.
+In constant-time mode every image takes exactly the same number of cycles. With
+`SMAC.RUNM` the accelerator also fetches the image from memory itself, in a fixed
+number of cycles, so the bound and the constant time hold for the whole inference
+as the CPU sees it.
 Why this works and what it does not cover: [docs/hardware.md](docs/hardware.md)
 section 6. All numbers: [docs/results.md](docs/results.md),
 [docs/budget_study.md](docs/budget_study.md), [docs/budget_pareto.md](docs/budget_pareto.md).

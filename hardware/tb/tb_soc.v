@@ -37,9 +37,11 @@ module tb_soc;
 `endif
     localparam MAX_IMG = 100;
 `ifdef BUDGET_RUN
-    localparam NPASS = 3;                 // no budget, budget, budget + constant time
+    localparam WITH_BUDGET = 1;
+    localparam NPASS = 5;                 // no budget; budget; budget + constant time; the last two with SMAC.RUNM
 `else
-    localparam NPASS = 1;
+    localparam WITH_BUDGET = 0;
+    localparam NPASS = 2;                 // SMAC.LDW + SMAC.RUN; SMAC.RUNM (the accelerator loads the image)
 `endif
 
     reg clk = 0;
@@ -55,6 +57,12 @@ module tb_soc;
     reg  [31:0] mem_rdata;
 
     wire        pcpi_valid, pcpi_wr, pcpi_wait, pcpi_ready;
+
+    // second bus master: the image loader of the accelerator (SMAC.RUNM)
+    wire        ld_valid;
+    wire [31:0] ld_addr;
+    reg  [31:0] ld_rdata;
+    reg         ld_ready;
     wire [31:0] pcpi_insn, pcpi_rs1, pcpi_rs2, pcpi_rd;
 
     picorv32 #(
@@ -89,7 +97,8 @@ module tb_soc;
         .pcpi_valid(pcpi_valid), .pcpi_insn(pcpi_insn),
         .pcpi_rs1(pcpi_rs1), .pcpi_rs2(pcpi_rs2),
         .pcpi_wr(pcpi_wr), .pcpi_rd(pcpi_rd),
-        .pcpi_wait(pcpi_wait), .pcpi_ready(pcpi_ready)
+        .pcpi_wait(pcpi_wait), .pcpi_ready(pcpi_ready),
+        .ld_valid(ld_valid), .ld_addr(ld_addr), .ld_rdata(ld_rdata), .ld_ready(ld_ready)
     );
 
     // ---------------- RAM and test devices ----------------
@@ -102,11 +111,24 @@ module tb_soc;
     reg        exited = 0;
     reg [31:0] exit_code = 0;
 
-    wire [31:0] a = {mem_addr[31:2], 2'b00};
+    wire [31:0] a  = {mem_addr[31:2], 2'b00};
+    wire [31:0] la = {ld_addr[31:2], 2'b00};
+    integer     ld_reads = 0;             // bus reads done by the loader
+    integer     ld_clash = 0;             // cycles in which the loader had to wait for the CPU
 
+    // One RAM, two masters. The CPU has priority; the loader is served only in
+    // cycles in which the CPU does not want the bus (it waits otherwise). Same
+    // timing for both: two clock cycles per access.
     always @(posedge clk) begin
         cycle_no <= cycle_no + 1;
         mem_ready <= 1'b0;
+        ld_ready  <= 1'b0;
+        if (resetn && ld_valid && !ld_ready && mem_valid) ld_clash <= ld_clash + 1;
+        if (resetn && !mem_valid && ld_valid && !ld_ready) begin
+            ld_ready <= 1'b1;
+            ld_rdata <= (ld_addr < `RAM_SIZE) ? {ram[la + 3], ram[la + 2], ram[la + 1], ram[la]} : 32'd0;
+            ld_reads <= ld_reads + 1;
+        end
         if (resetn && mem_valid && !mem_ready) begin
             mem_ready <= 1'b1;
             mem_rdata <= 32'd0;
@@ -155,6 +177,13 @@ module tb_soc;
         $readmemh({`MEMDIR, "/hidden_shift.hex"},   ram, `SHIFT_ADDR,  `SHIFT_ADDR);
         $readmemh({`MEMDIR, "/test_labels.txt"},    ram, `LABELS_BASE, `LABELS_BASE + MAX_IMG - 1);
         $readmemh({`MEMDIR, "/test_images.hex"},    ram, `IMAGES_BASE, `IMAGES_BASE + MAX_IMG*784 - 1);
+        // the images in normal pixel order, for SMAC.RUNM. With the budget model
+        // test_images.hex is already in input order, so a second file is needed.
+`ifdef BUDGET_RUN
+        $readmemh({`MEMDIR, "/test_images_raster.hex"}, ram, `RASTER_BASE, `RASTER_BASE + MAX_IMG*784 - 1);
+`else
+        $readmemh({`MEMDIR, "/test_images.hex"},        ram, `RASTER_BASE, `RASTER_BASE + MAX_IMG*784 - 1);
+`endif
 
         // the biases are 32-bit words in the hex files: store them little-endian
         $readmemh({`MEMDIR, "/fc1_bias.hex"}, tmpw, 0, 63);
@@ -219,12 +248,13 @@ module tb_soc;
             $display("firmware exit code: %0d", exit_code);
             nimg = res_cnt / 11 / NPASS;          // images per pass
             errors = 0; pred_errors = 0;
-            // pass 0: no budget (golden_logits). passes 1 and 2: with the budget (golden_logits_b).
+            // pass 0: no budget (golden_logits). Later passes: with the budget (golden_logits_b)
+            // in a BUDGET_RUN simulation, otherwise again without a budget (golden_logits).
             for (ps = 0; ps < NPASS; ps = ps + 1) begin
                 for (img = 0; img < nimg; img = img + 1) begin
                     base = (ps*nimg + img) * 11;
                     for (c = 0; c < 10; c = c + 1) begin
-                        exp_log = (ps == 0) ? gold_log[img*10 + c] : gold_logb[img*10 + c];
+                        exp_log = (ps == 0 || !WITH_BUDGET) ? gold_log[img*10 + c] : gold_logb[img*10 + c];
                         if (res[base + c] !== exp_log) begin
                             errors = errors + 1;
                             if (errors <= 10)
@@ -232,14 +262,15 @@ module tb_soc;
                                          $signed(res[base + c]), $signed(exp_log));
                         end
                     end
-                    exp_pred = (ps == 0) ? gold_pred[img] : gold_predb[img];
+                    exp_pred = (ps == 0 || !WITH_BUDGET) ? gold_pred[img] : gold_predb[img];
                     if (res[base + 10] !== {24'd0, exp_pred}) begin
                         pred_errors = pred_errors + 1;
                         $display("FAIL pass=%0d img=%0d pred=%0d expected=%0d", ps, img, res[base + 10], exp_pred);
                     end
                 end
             end
-            if (NPASS > 1) $display("passes checked: %0d (no budget, budget, budget + constant time)", NPASS);
+            $display("passes checked: %0d", NPASS);
+            $display("loader: %0d bus reads, waited %0d cycles for the CPU", ld_reads, ld_clash);
             $display("images reported by the CPU: %0d", nimg);
             $display("total simulated clock cycles: %0d", cycle_no);
             if (nimg > 1) begin

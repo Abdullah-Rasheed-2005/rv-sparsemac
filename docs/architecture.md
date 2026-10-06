@@ -67,8 +67,9 @@ know, it sends it out on the PCPI signals (`pcpi_valid`, `pcpi_insn`,
 
 The core talks to the accelerator through custom instructions: `SMAC.LDW`
 (load image words), `SMAC.RUN` (start and wait), `SMAC.LOGIT` (read one logit)
-`SMAC.CYC` (read the accelerator's cycle count) and `SMAC.CFG` (bound the run
-time: a hard cycle budget and a constant-time mode). Details are in
+`SMAC.CYC` (read the accelerator's cycle count), `SMAC.CFG` (bound the run
+time: a hard cycle budget and a constant-time mode) and `SMAC.RUNM` (the
+accelerator fetches the image from memory itself and runs). Details are in
 [hardware.md](hardware.md).
 
 Status: everything in this section is built and simulated (RTL simulation with

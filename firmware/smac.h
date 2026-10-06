@@ -1,4 +1,4 @@
-/* smac.h - The five custom instructions of the sparse accelerator
+/* smac.h - The six custom instructions of the sparse accelerator
  *
  * They are encoded with the assembler directive .insn (R-type):
  *     .insn r  opcode, funct3, funct7, rd, rs1, rs2
@@ -44,6 +44,16 @@ static inline uint32_t smac_cycles(void)
 static inline void smac_cfg(uint32_t budget, uint32_t const_time)
 {
     asm volatile (".insn r 0x0b, 4, 0, zero, %0, %1" :: "r"(budget), "r"(const_time));
+}
+
+/* SMAC.RUNM: the accelerator fetches the 784 pixels itself from 'image' (normal
+ * pixel order, address a multiple of 4), runs, and returns the predicted digit.
+ * No SMAC.LDW is needed. SMAC.CYC then gives the cycles of the whole instruction. */
+static inline uint32_t smac_runm(const void *image)
+{
+    uint32_t pred;
+    asm volatile (".insn r 0x0b, 5, 0, %0, %1, zero" : "=r"(pred) : "r"(image));
+    return pred;
 }
 
 /* rdcycle written as a raw CSR read (csrrs rd, cycle, x0) so that it assembles

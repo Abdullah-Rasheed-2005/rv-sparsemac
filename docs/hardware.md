@@ -165,8 +165,9 @@ All are R-type, opcode `0x0B` (the RISC-V *custom-0* space), `funct7 = 0`:
 | 2 | `SMAC.LOGIT` | class 0..9 | - | logit (0 if rs1 > 9) | read a logit of the last run |
 | 3 | `SMAC.CYC` | - | - | cycles | accelerator clocks of the last run |
 | 4 | `SMAC.CFG` | layer-1 cycle budget (0 = no limit) | bit 0: constant time | 0 | bound the run time (section 6) |
+| 5 | `SMAC.RUNM` | address of the image (784 bytes, normal pixel order) | - | predicted digit | fetch the image from memory, then run (section 5.5) |
 
-`funct3` 5..7, `funct7 != 0` and other opcodes are not claimed, so the core
+`funct3` 6..7, `funct7 != 0` and other opcodes are not claimed, so the core
 still traps on them. `make sim-pcpi` checks this.
 
 In C they are written with the assembler directive `.insn` (`firmware/smac.h`):
@@ -187,6 +188,7 @@ Defined once in `firmware/layout.h`; the Makefile turns it into
 | `0x0001CA00` | hidden shift |
 | `0x0001CB00` | true labels |
 | `0x00020000` | test images (784 bytes each) |
+| `0x00040000` | the test images in normal pixel order, read by the accelerator (`SMAC.RUNM`) |
 | `0x00034000` / `0x00034800` / `0x00037000` | fc1 by column (CSC): pointers (uint16), rows, weights |
 | `0x00039800` / `0x00039900` / `0x00039C00` | fc2 by column (CSC): pointers (uint16), rows, weights |
 | `0x10000000` | console (write a byte = print it) |
@@ -199,7 +201,8 @@ by `$readmemh`); the dense and CSC weights in RAM exist only for the software ba
 ### 5.3 What the firmware does
 
 1. For each of the 100 images: send the 196 pixel words with `SMAC.LDW`,
-   `SMAC.RUN`, then ten `SMAC.LOGIT`.
+   `SMAC.RUN`, then ten `SMAC.LOGIT`. Then the same images again with one
+   `SMAC.RUNM` per image instead of the 196 `SMAC.LDW` and the `SMAC.RUN`.
 2. Run the same network in plain C on the CPU, in three ways, and compare the
    logits with the accelerator: dense (1 image), skipping zero pixels (2 images),
    and the accelerator's own algorithm with CSC weights (`sw_csc`, all 100 images).
@@ -226,9 +229,40 @@ The testbench independently compares everything the firmware reports with
   compute alone is `SMAC.CYC`. Skipping all-zero words in the firmware was tried
   and made loading slower, because the extra test per word costs more than the
   skipped instructions save. The real fix is for the accelerator to read the
-  image from RAM itself (a bus master), which is future work.
+  image from RAM itself: `SMAC.RUNM`, section 5.5.
 - These are simulation cycle counts of a design with simulation memories. They
   are not FPGA timing and not energy.
+
+### 5.5 The accelerator loads the image itself (`SMAC.RUNM`)
+
+Sending the pixels with `SMAC.LDW` costs more CPU time than the accelerator
+needs for the whole network. `SMAC.RUNM` removes that: the CPU only passes the
+address of the image, and the wrapper (`sparsemac_pcpi.v`) does the rest.
+
+```
+FETCH   196 bus reads, 4 pixels each, into a small buffer        2 cycles per word
+ORDER   for k = 0..783: pixel order[k] from the buffer -> input k   1 cycle per pixel
+RUN     as SMAC.RUN
+```
+
+- **Second bus master.** The wrapper has its own memory port (`ld_valid`,
+  `ld_addr`, `ld_rdata`, `ld_ready`, read only). While PicoRV32 waits for a
+  co-processor instruction it uses the bus only once (it prefetches the next
+  instruction), so the system gives the bus to the wrapper whenever the CPU
+  does not ask for it. The CPU has priority. The testbench counts the cycles the
+  loader had to wait: one per instruction.
+- **Order table.** `order.hex` says which pixel is input number `k`. For the
+  normal model it is 0, 1, 2, ...; for the budget model it is the fixed
+  most-useful-first order (section 6.3). The image in memory stays in its
+  normal pixel order; no software has to reorder anything.
+- **Same time for every image.** FETCH and ORDER do not depend on the pixel
+  values, so `SMAC.RUNM` adds a constant to the run time. With a budget the
+  whole instruction is bounded, and in constant-time mode the whole instruction
+  takes the same number of cycles for every image.
+- `SMAC.CYC` after `SMAC.RUNM` returns the cycles of the whole instruction.
+
+Checked by `make sim-pcpi` (wrapper alone, with a small memory model),
+`make sim-soc` and `make sim-soc-budget` (with PicoRV32).
 
 ## 6. Bounded run time
 
@@ -307,10 +341,11 @@ before the Verilog was written; the simulation reproduced that model's numbers.
 
 ### 6.5 Limits
 
-- The bound covers the accelerator, not the loading of the image, which costs
-  more than the run itself in this system (`SMAC.LDW`). A bus-master loader is the next step.
-- The images in the simulated RAM are already in the fixed order. A real system
-  has to apply the order while loading (an address table for a bus-master loader).
+- With `SMAC.LDW` the bound covers only the accelerator, and the images must
+  already be stored in the fixed order. With `SMAC.RUNM` (section 5.5) the image
+  is fetched and ordered by the accelerator in a fixed number of cycles, so the
+  bound and the constant time cover the whole instruction.
+- Fetching and ordering take about as long as the computation for this small network.
 - `out_valid` pulses still come at a data-dependent time in constant-time mode;
   only `done` (and therefore the end of `SMAC.RUN`) is constant. Power and
   electromagnetic side channels are not addressed.

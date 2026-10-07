@@ -353,4 +353,5 @@ before the Verilog was written; the simulation reproduced that model's numbers.
 - The model and budget were chosen by looking at test-set accuracy of several
   configurations, which is slightly optimistic. The combined experiment used one
   random seed per sparsity and twice as many fine-tuning epochs as the plain models.
-- MNIST only.
+- Two datasets (MNIST and Fashion-MNIST), both small grey-scale images and the
+  same small network. Other kinds of data are not tested.

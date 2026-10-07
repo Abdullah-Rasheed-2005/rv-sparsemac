@@ -22,8 +22,10 @@ written by the same code path as the edge model), plus
     test_images_raster.hex  the same test images in normal pixel order (input of SMAC.RUNM)
 
 Run from the repository root:
-    python3 software/export_budget.py            (budget 1000, 90 % pruned model)
-    python3 software/export_budget.py 1700 80    (another budget, another model)
+    python3 software/export_budget.py                    (MNIST, budget 1000, 90 % pruned model)
+    python3 software/export_budget.py 1700 80            (another budget, another model)
+    python3 software/export_budget.py 1850 90 fashion    (Fashion-MNIST: models/fashion_fc1_90.pth,
+                                                          written to build/fashion_mem/)
 """
 
 import subprocess
@@ -89,6 +91,28 @@ def write_dir(out, net, order, X, Y, budget, sparsity=80):
     return used
 
 
+def export(out, net, order, Xte, Yte, budget, sparsity, model_name, dataset):
+    """Print the accuracy numbers (all test images) and write the files (first NIMG images).
+    Plain numpy; the PyTorch part is only the loading in the main program below."""
+    if sorted(np.asarray(order).tolist()) != list(range(784)):
+        sys.exit('the order file is not a permutation of 0..783')
+    # the numbers behind the hardware claim, on all test images, in CLOCK-CYCLE cost
+    cyc = L.column_cycles(net[0])
+    full, _ = L.accuracy_at(Xte, Yte, net, order, 10 ** 9, L.column_cycles)
+    acc, used = L.accuracy_at(Xte, Yte, net, order, budget, L.column_cycles)
+    _, free = L.truncate(Xte, order, cyc, 10 ** 9)
+    print(f'dataset: {dataset}')
+    print(f'model: {model_name} ({sparsity} % of fc1 pruned), layer-1 budget = {budget} cycles')
+    print(f'accuracy, no budget   : {full:.2f}%  (layer-1 cycles: average {free.mean():.0f}, maximum {free.max()}, '
+          f'worst possible image {cyc.sum()})')
+    print(f'accuracy, with budget : {acc:.2f}%  (layer-1 cycles: average {used:.0f}, maximum {budget})')
+
+    used100 = write_dir(out, net, order, Xte[:NIMG], Yte[:NIMG], budget, sparsity)
+    print(f'golden values for {NIMG} images written, {int((used100 < L.truncate(Xte[:NIMG], order, cyc, 10 ** 9)[1]).sum())} '
+          f'of them are cut by the budget')
+    print(f'Budget model written to {out}')
+
+
 if __name__ == '__main__':
     import torch
     from torchvision import datasets
@@ -98,36 +122,28 @@ if __name__ == '__main__':
 
     budget = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
     sparsity = int(sys.argv[2]) if len(sys.argv) > 2 else 90
-    MODEL = MODELS_DIR / f'budget_fc1_{sparsity}.pth'
-    ORDER = MODELS_DIR / f'budget_order_{sparsity}.txt'
-    if sparsity == 80 and not ORDER.exists():
+    dataset = sys.argv[3] if len(sys.argv) > 3 else 'mnist'
+    if dataset not in ('mnist', 'fashion'):
+        sys.exit('the dataset must be mnist or fashion')
+
+    prefix = 'budget' if dataset == 'mnist' else 'fashion'
+    out = OUT if dataset == 'mnist' else ROOT / 'build' / 'fashion_mem'
+    MODEL = MODELS_DIR / f'{prefix}_fc1_{sparsity}.pth'
+    ORDER = MODELS_DIR / f'{prefix}_order_{sparsity}.txt'
+    if dataset == 'mnist' and sparsity == 80 and not ORDER.exists():
         ORDER = MODELS_DIR / 'budget_order.txt'
     if not MODEL.exists() or not ORDER.exists():
-        sys.exit(f'missing {MODEL.name} / {ORDER.name} in models/: run software/budget_pareto.py, '
-                 f'then copy build/budget_fc1_{sparsity}.pth and build/budget_order_{sparsity}.txt into models/')
+        script = 'budget_pareto.py' if dataset == 'mnist' else 'fashion_pareto.py'
+        sys.exit(f'missing {MODEL.name} / {ORDER.name} in models/: run software/{script}, '
+                 f'then copy build/{MODEL.name} and build/{ORDER.name} into models/')
 
-    train = datasets.MNIST(root=str(DATA_DIR), train=True, download=True)
-    test = datasets.MNIST(root=str(DATA_DIR), train=False, download=True)
+    Data = datasets.MNIST if dataset == 'mnist' else datasets.FashionMNIST
+    train = Data(root=str(DATA_DIR), train=True, download=True)
+    test = Data(root=str(DATA_DIR), train=False, download=True)
     Xtr = train.data.view(-1, 784).numpy().astype(np.int64)
     Xte = test.data.view(-1, 784).numpy().astype(np.int64)
     Yte = test.targets.numpy()
 
     net = to_int(torch.load(MODEL), Xtr[:10000])
     order = np.loadtxt(ORDER, dtype=np.int64)
-    if sorted(order.tolist()) != list(range(784)):
-        sys.exit('budget_order.txt is not a permutation of 0..783')
-
-    # the numbers behind the hardware claim, on all 10,000 test images, in CLOCK-CYCLE cost
-    cyc = L.column_cycles(net[0])
-    full, _ = L.accuracy_at(Xte, Yte, net, order, 10 ** 9, L.column_cycles)
-    acc, used = L.accuracy_at(Xte, Yte, net, order, budget, L.column_cycles)
-    _, free = L.truncate(Xte, order, cyc, 10 ** 9)
-    print(f'model: {MODEL.name} ({sparsity} % of fc1 pruned), layer-1 budget = {budget} cycles')
-    print(f'accuracy, no budget   : {full:.2f}%  (layer-1 cycles: average {free.mean():.0f}, maximum {free.max()}, '
-          f'worst possible image {cyc.sum()})')
-    print(f'accuracy, with budget : {acc:.2f}%  (layer-1 cycles: average {used:.0f}, maximum {budget})')
-
-    used100 = write_dir(OUT, net, order, Xte[:NIMG], Yte[:NIMG], budget, sparsity)
-    print(f'golden values for {NIMG} images written, {int((used100 < L.truncate(Xte[:NIMG], order, cyc, 10 ** 9)[1]).sum())} '
-          f'of them are cut by the budget')
-    print(f'Budget model written to {OUT}')
+    export(out, net, order, Xte, Yte, budget, sparsity, MODEL.name, dataset)

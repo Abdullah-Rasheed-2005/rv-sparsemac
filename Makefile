@@ -2,7 +2,7 @@ SHELL := /bin/bash
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget sim-zs-fashion sim-soc-fashion fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
 
 help:
 	@echo "Targets:"
@@ -23,6 +23,7 @@ help:
 	@echo "  sim-zs-edge sim-zs on an artificial network with ties, saturation, empty columns"
 	@echo "  sim-zs-budget  bounded run time: hard layer-1 cycle budget and constant time (budget-aware model)"
 	@echo "  sim-soc-budget PicoRV32 + accelerator with the budget set by SMAC.CFG (budget-aware model)"
+	@echo "  sim-zs-fashion / sim-soc-fashion  the same two with the Fashion-MNIST model (same hardware)"
 	@echo "  sim-dense   same engine as sim-mlp but fed every weight (measured dense baseline)"
 	@echo "  fw          compile the RISC-V firmware (needs gcc-riscv64-unknown-elf)"
 	@echo "  report      run all hardware/RISC-V simulations and write the numbers into docs/results.md"
@@ -98,6 +99,15 @@ sim-zs-budget:
 	iverilog -o build/sim_zs_budget hardware/tb/tb_zs_budget.v hardware/rtl/sparse_mlp_zs.v
 	vvp build/sim_zs_budget
 
+# The same hardware with the Fashion-MNIST model (models/fashion_fc1_<S>.pth, software/fashion_pareto.py).
+FASHION_BUDGET ?= 1850
+FASHION_SPARSITY ?= 90
+sim-zs-fashion:
+	$(PY) software/export_budget.py $(FASHION_BUDGET) $(FASHION_SPARSITY) fashion
+	mkdir -p build
+	iverilog -DMEMDIR='"build/fashion_mem"' -o build/sim_zs_fashion hardware/tb/tb_zs_budget.v hardware/rtl/sparse_mlp_zs.v
+	vvp build/sim_zs_fashion
+
 # ---------------- RISC-V firmware (needs: sudo apt install gcc-riscv64-unknown-elf) ----------------
 RVPREFIX ?= riscv64-unknown-elf-
 RVFLAGS  ?= -march=rv32im -mabi=ilp32 -O2 -ffreestanding -nostdlib -fno-pic -fno-builtin -Wall -Wextra
@@ -147,6 +157,12 @@ sim-soc-budget: fw build/layout.vh
 	iverilog -g2005 -Ibuild -DBUDGET_RUN -DMEMDIR='"build/budget_mem"' -o build/sim_soc_budget $(SOC_SRC)
 	vvp build/sim_soc_budget
 
+sim-soc-fashion: FWDEFS += -DBUDGET_RUN -DNSW_CSC=2
+sim-soc-fashion: fw build/layout.vh
+	$(PY) software/export_budget.py $(FASHION_BUDGET) $(FASHION_SPARSITY) fashion
+	iverilog -g2005 -Ibuild -DBUDGET_RUN -DMEMDIR='"build/fashion_mem"' -o build/sim_soc_fashion $(SOC_SRC)
+	vvp build/sim_soc_fashion
+
 # Runs every simulation, keeps the logs, then writes docs/results.md from the logs (takes several minutes).
 # 'set -o pipefail' makes a failing simulation stop the report.
 report:
@@ -160,6 +176,8 @@ report:
 	set -o pipefail; $(MAKE) --no-print-directory sim-soc-ws   2>&1 | tee build/logs/sim-soc-ws.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-zs-budget  2>&1 | tee build/logs/sim-zs-budget.log
 	set -o pipefail; $(MAKE) --no-print-directory sim-soc-budget 2>&1 | tee build/logs/sim-soc-budget.log
+	set -o pipefail; $(MAKE) --no-print-directory sim-zs-fashion  2>&1 | tee build/logs/sim-zs-fashion.log
+	set -o pipefail; $(MAKE) --no-print-directory sim-soc-fashion 2>&1 | tee build/logs/sim-soc-fashion.log
 	$(PY) scripts/write_results.py
 
 clean:

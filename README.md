@@ -88,7 +88,8 @@ rv-sparsemac/
 │   ├── budget_experiment.py  accuracy with a budget + budget-aware fine-tuning
 │   ├── budget_study.py       seeds, alternatives with the same worst case, timing leak
 │   ├── budget_pareto.py      pruning and the budget together (picks the hardware model)
-│   ├── export_budget.py      export the budget-aware model (build/budget_mem)
+│   ├── fashion_pareto.py     the same study on Fashion-MNIST
+│   ├── export_budget.py      export a budget-aware model (build/budget_mem or build/fashion_mem)
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
 ├── firmware/                 C program for the RISC-V core + custom-instruction header
@@ -131,6 +132,8 @@ make sim-zs-budget  # bounded run time: hard cycle budget and constant time
 make sim-pcpi     # custom-instruction wrapper alone
 make sim-soc      # PicoRV32 + accelerator run the firmware on 100 images
 make sim-soc-budget  # same with the run-time budget set by the CPU (SMAC.CFG)
+make sim-zs-fashion  # the accelerator with the Fashion-MNIST model (same hardware)
+make sim-soc-fashion # PicoRV32 + accelerator with the Fashion-MNIST model
 make report       # run everything and write the numbers into docs/results.md
 ```
 
@@ -155,6 +158,11 @@ Measured on the 10,000 test images (layer-1 cycles, exact hardware arithmetic):
 | 90 % pruned, no budget | 96.85% | 923 | 5,483 |
 | **90 % pruned, budget 1,000** | **96.81%** | **857** | **1,000** |
 | pruning alone until the worst case is 1,000 (605 weights left) | 87.70% | - | 1,000 |
+
+The same hardware also runs a Fashion-MNIST model (only half of the pixels are
+zero there, and the task is harder): 86.27 % without a budget, 86.02 % with a
+budget of 1,850 cycles instead of a worst case of 5,755
+([docs/fashion_pareto.md](docs/fashion_pareto.md)).
 
 In constant-time mode every image takes exactly the same number of cycles. With
 `SMAC.RUNM` the accelerator also fetches the image from memory itself, in a fixed

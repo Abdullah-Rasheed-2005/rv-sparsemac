@@ -187,7 +187,7 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
   Every run with the budget stayed below the bound of 1,800 cycles checked by the testbench.
 - Layer 1 alone, on all 10,000 images (no simulation): average 923 cycles and maximum 1,893 without a
   budget, 5,483 for the slowest possible input; average 857 and maximum 1,000 with the budget.
-- 26 of the 100 test images are cut by the budget. Their logits match the golden values of
+- The budget changes the logits of 26 of the 100 test images. All logits match the golden values of
   `software/budget_lib.py` bit for bit, so the accuracy claim and the hardware use the same rule.
 - Constant time: all images, an all-zero and an all-255 image finish after exactly 1,801 accelerator cycles.
   Seen from the CPU (`SMAC.CYC`, 100 images): minimum 1,801, maximum 1,801;
@@ -205,4 +205,46 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
   So the bound and the constant time cover the whole inference, not only the accelerator.
 - The loader made 39,592 bus reads and waited 202 cycles in total for the CPU (its one prefetch per instruction).
 - Limits: `SMAC.RUNM` spends about as many cycles on fetching and ordering as on computing for this small network.
-  MNIST only.
+
+### Bounded run time on Fashion-MNIST (`make sim-zs-fashion`, `make sim-soc-fashion`)
+
+The same hardware, only the weights, the order table and the images are different. About half of the
+pixels are zero here (MNIST: about 81 %), so every image costs more cycles.
+Model: the 90 % pruned network after budget-aware fine-tuning (`models/fashion_fc1_90.pth`),
+inputs stored most-useful-first. Layer-1 budget: 1,850 cycles. Why this model and this
+budget: [fashion_pareto.md](fashion_pareto.md).
+The accuracy lines are computed by `software/export_budget.py` on all 10,000 test images with
+the same rule as the hardware; the cycle counts are RTL simulation of 100 test images.
+
+| | No budget | Budget 1,850 | Budget 1,850 + constant time |
+|---|---|---|---|
+| Accuracy, 10,000 images | 86.27% | 86.02% | 86.02% |
+| Accelerator cycles per image, average | 2,273 | 1,982 | 2,651 |
+| Accelerator cycles, slowest of the 100 test images | 4,033 | 2,370 | 2,651 |
+| Accelerator cycles, all-255 image (slowest possible input) | 6,116 | 2,250 | 2,651 |
+| Whole loop on PicoRV32, pixels sent with `SMAC.LDW` | 8,476 | 7,289 | 7,958 |
+| Whole loop on PicoRV32, image fetched by the accelerator (`SMAC.RUNM`) | - | 3,414 | 4,083 |
+
+- The budget costs 0.25 points of accuracy. It cuts the slowest possible input from
+  6,116 to 2,250 cycles (2.7x) and the average from 2,273 to 1,982 cycles.
+  Every run with the budget stayed below the bound of 2,650 cycles checked by the testbench.
+- Layer 1 alone, on all 10,000 images (no simulation): average 1,837 cycles and maximum 5,048 without a
+  budget, 5,755 for the slowest possible input; average 1,571 and maximum 1,850 with the budget.
+- The budget changes the logits of 26 of the 100 test images. All logits match the golden values of
+  `software/budget_lib.py` bit for bit, so the accuracy claim and the hardware use the same rule.
+- Constant time: all images, an all-zero and an all-255 image finish after exactly 2,651 accelerator cycles.
+  Seen from the CPU (`SMAC.CYC`, 100 images): minimum 2,651, maximum 2,651;
+  with the budget only: minimum 981, maximum 2,370.
+  Constant time costs 34% more cycles than the budget alone.
+- All-255 image through the CPU (`SMAC.CYC`): 6,116 without a budget, 2,250 with the budget,
+  2,651 in constant time. The 5 passes of the SoC simulation were checked against the golden values.
+- With `SMAC.LDW` the CPU spends 6,192 cycles per image on sending pixels and reading logits, whatever the
+  budget is, and the images in RAM must already be stored most-useful-first.
+- With `SMAC.RUNM` the accelerator reads the image from RAM itself (normal pixel order) and applies the
+  order: 1,180 cycles for every image, the same for all of them. The whole loop then takes
+  3,414 cycles on average (minimum 2,413, maximum 3,802) with the budget.
+  In constant time the CPU measures 4,083 to 4,083 cycles for the whole loop over 100 images,
+  and the all-255 image takes 3,831 instruction cycles (3,430 with the budget only).
+  So the bound and the constant time cover the whole inference, not only the accelerator.
+- The loader made 39,592 bus reads and waited 202 cycles in total for the CPU (its one prefetch per instruction).
+- Limits: `SMAC.RUNM` spends about as many cycles on fetching and ordering as on computing for this small network.

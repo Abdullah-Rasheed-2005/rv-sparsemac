@@ -31,7 +31,7 @@
 - [x] Bus-master loader that applies the input order (`SMAC.RUNM`): the bound and the constant time cover the whole instruction
 - [x] 3 random seeds; other ways to guarantee the same worst case (`docs/budget_study.md`)
 - [x] Pruning and the budget together; hardware model = 90 % pruned, budget 1,000 (`docs/budget_pareto.md`)
-- [ ] Second dataset (Fashion-MNIST)
+- [x] Second dataset (Fashion-MNIST): software study (`docs/fashion_pareto.md`) and the same RTL with the Fashion model (`make sim-zs-fashion`, `make sim-soc-fashion`)
 - [ ] Timing-leak and slow-input measurements with and without the budget
 
 ## Phase 4 - Benchmark and report

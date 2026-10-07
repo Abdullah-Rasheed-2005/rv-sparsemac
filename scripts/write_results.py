@@ -66,12 +66,22 @@ def budget_pass(text, title):
     return dict(zip(('correct', 'acc', 'min', 'max', 'all', 'all_min', 'all_max'), map(int, m.groups())))
 
 
-def budget_section():
-    """The section about the run-time budget, from sim-zs-budget.log and sim-soc-budget.log."""
-    zb = read_log('sim-zs-budget.log')
-    sb = read_log('sim-soc-budget.log')
+def budget_section(tag='budget'):
+    """The section about the run-time budget, from sim-zs-<tag>.log and sim-soc-<tag>.log.
+    tag = 'budget' (MNIST) or 'fashion' (Fashion-MNIST, same hardware)."""
+    zb = read_log(f'sim-zs-{tag}.log')
+    sb = read_log(f'sim-soc-{tag}.log')
     if 'PASS: sparse_mlp_zs budget matched' not in zb:
-        sys.exit('sim-zs-budget did not pass - fix the failure first')
+        sys.exit(f'sim-zs-{tag} did not pass - fix the failure first')
+    if tag == 'fashion':
+        title = 'Bounded run time on Fashion-MNIST (`make sim-zs-fashion`, `make sim-soc-fashion`)'
+        intro = ('The same hardware, only the weights, the order table and the images are different. About half of the\n'
+                 'pixels are zero here (MNIST: about 81 %), so every image costs more cycles.\n')
+        why = '[fashion_pareto.md](fashion_pareto.md)'
+    else:
+        title = 'Bounded run time (`make sim-zs-budget`, `make sim-soc-budget`)'
+        intro = ''
+        why = '[budget_pareto.md](budget_pareto.md) and [budget_study.md](budget_study.md)'
     S = soc_numbers(sb)                      # pass without a budget (also checks the PASS line)
     npass = find(r'passes checked: (\d+)', sb, 'passes checked')
 
@@ -113,11 +123,11 @@ def budget_section():
         return f'{x:,.0f}'
 
     return f'''
-### Bounded run time (`make sim-zs-budget`, `make sim-soc-budget`)
+### {title}
 
-Model: the {sp} % pruned network after budget-aware fine-tuning (`models/{model}`),
+{intro}Model: the {sp} % pruned network after budget-aware fine-tuning (`models/{model}`),
 inputs stored most-useful-first. Layer-1 budget: {f(B)} cycles. Why this model and this
-budget: [budget_pareto.md](budget_pareto.md) and [budget_study.md](budget_study.md).
+budget: {why}.
 The accuracy lines are computed by `software/export_budget.py` on all 10,000 test images with
 the same rule as the hardware; the cycle counts are RTL simulation of 100 test images.
 
@@ -135,7 +145,7 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
   Every run with the budget stayed below the bound of {f(bound)} cycles checked by the testbench.
 - Layer 1 alone, on all 10,000 images (no simulation): average {f(l1_avg)} cycles and maximum {f(l1_max)} without a
   budget, {f(l1_worst)} for the slowest possible input; average {f(l1_bavg)} and maximum {f(B)} with the budget.
-- {cut} of the 100 test images are cut by the budget. Their logits match the golden values of
+- The budget changes the logits of {cut} of the 100 test images. All logits match the golden values of
   `software/budget_lib.py` bit for bit, so the accuracy claim and the hardware use the same rule.
 - Constant time: all images, an all-zero and an all-255 image finish after exactly {f(ct)} accelerator cycles.
   Seen from the CPU (`SMAC.CYC`, {n} images): minimum {f(pc['min'])}, maximum {f(pc['max'])};
@@ -153,7 +163,6 @@ the same rule as the hardware; the cycle counts are RTL simulation of 100 test i
   So the bound and the constant time cover the whole inference, not only the accelerator.
 - The loader made {f(ld_reads)} bus reads and waited {f(ld_wait)} cycles in total for the CPU (its one prefetch per instruction).
 - Limits: `SMAC.RUNM` spends about as many cycles on fetching and ordering as on computing for this small network.
-  MNIST only.
 '''
 
 
@@ -260,7 +269,8 @@ logits. Split for `sparse_mlp_zs.v` with `SMAC.LDW`:
 - Handshake tests of the custom instructions without a CPU: `make sim-pcpi` passes
   (including instructions that must be ignored).
 '''
-    out += budget_section()
+    out += budget_section('budget')
+    out += budget_section('fashion')
 
     p = ROOT / 'docs' / 'results.md'
     s = p.read_text()

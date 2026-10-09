@@ -121,7 +121,8 @@ module sparse_mlp_zs #(
     output reg  signed [31:0]   out_val,     // its value
     output reg  [3:0]           pred         // winning class, valid with done
 );
-    localparam DEPTH = 16384;   // entries in each column list (2^14)
+    localparam DEPTH  = 16384;  // entries in the fc1 column list (2^14)
+    localparam DEPTH2 = 1024;   // entries in the fc2 column list (at most 64 x 10 = 640 are used)
 
     // ---------------- ROMs (filled by $readmemh in simulation) ----------------
     reg [15:0] cptr1 [0:784];          // fc1: 784 columns + 1
@@ -130,12 +131,27 @@ module sparse_mlp_zs #(
     reg [31:0] bias1 [0:63];
 
     reg [15:0] cptr2 [0:64];           // fc2: 64 columns + 1
-    reg [7:0]  crow2 [0:DEPTH-1];
-    reg [7:0]  cval2 [0:DEPTH-1];
+    reg [7:0]  crow2 [0:DEPTH2-1];
+    reg [7:0]  cval2 [0:DEPTH2-1];
     reg [31:0] bias2 [0:9];
 
     reg [7:0]  shift_rom [0:0];
 
+`ifdef SYNTHESIS
+    // Synthesis: plain $readmemh, the tool fills as many words as the file has.
+    initial begin
+        $readmemh(FC1_PTR,  cptr1);
+        $readmemh(FC1_ROW,  crow1);
+        $readmemh(FC1_VAL,  cval1);
+        $readmemh(FC1_BIAS, bias1);
+        $readmemh(FC2_PTR,  cptr2);
+        $readmemh(FC2_ROW,  crow2);
+        $readmemh(FC2_VAL,  cval2);
+        $readmemh(FC2_BIAS, bias2);
+        $readmemh(SHIFT_FILE, shift_rom);
+    end
+`else
+    // Simulation: read exactly as many words as the pointer files announce, and check the sizes.
     integer n1, n2;
     initial begin
         $readmemh(FC1_PTR, cptr1, 0, 784);
@@ -147,13 +163,14 @@ module sparse_mlp_zs #(
 
         $readmemh(FC2_PTR, cptr2, 0, 64);
         n2 = cptr2[64];
-        if (n2 > DEPTH) $display("ERROR: sparse_mlp_zs: fc2 has %0d nonzero weights, DEPTH is %0d", n2, DEPTH);
+        if (n2 > DEPTH2) $display("ERROR: sparse_mlp_zs: fc2 has %0d nonzero weights, DEPTH2 is %0d", n2, DEPTH2);
         $readmemh(FC2_ROW,  crow2, 0, n2 - 1);
         $readmemh(FC2_VAL,  cval2, 0, n2 - 1);
         $readmemh(FC2_BIAS, bias2, 0, 9);
 
         $readmemh(SHIFT_FILE, shift_rom, 0, 0);
     end
+`endif
 
     wire [4:0] shift = shift_rom[0][4:0];
 
@@ -205,17 +222,30 @@ module sparse_mlp_zs #(
 
     // synchronous reads (data appears one clock edge after the address, like block RAM)
     reg [9:0]  aj_q;   reg [7:0] av_q;      // list entry k
-    reg [15:0] plo_q, phi_q;                // ptr[j], ptr[j+1]
-    reg [7:0]  erow_q, eval_q;              // column entry cur_e
+    // Every memory has its own output register and the layer is selected AFTER
+    // the registers. That is the shape of a block RAM, so synthesis can map the
+    // ROMs to block RAM instead of building them from logic. The layer only
+    // changes while the pipeline is empty, so selecting later changes nothing.
+    reg [15:0] plo1_q, phi1_q, plo2_q, phi2_q;   // ptr[j], ptr[j+1] of fc1 / fc2
+    reg [7:0]  erow1_q, eval1_q, erow2_q, eval2_q; // column entry cur_e of fc1 / fc2
 
     always @(posedge clk) begin
-        aj_q   <= al_idx[k[9:0]];
-        av_q   <= al_val[k[9:0]];
-        plo_q  <= layer ? cptr2[aj_q[6:0]]            : cptr1[aj_q];
-        phi_q  <= layer ? cptr2[aj_q[6:0] + 7'd1]     : cptr1[aj_q + 10'd1];
-        erow_q <= layer ? crow2[cur_e[13:0]]          : crow1[cur_e[13:0]];
-        eval_q <= layer ? cval2[cur_e[13:0]]          : cval1[cur_e[13:0]];
+        aj_q    <= al_idx[k[9:0]];
+        av_q    <= al_val[k[9:0]];
+        plo1_q  <= cptr1[aj_q];
+        phi1_q  <= cptr1[aj_q + 10'd1];
+        plo2_q  <= cptr2[aj_q[6:0]];
+        phi2_q  <= cptr2[aj_q[6:0] + 7'd1];
+        erow1_q <= crow1[cur_e[13:0]];
+        eval1_q <= cval1[cur_e[13:0]];
+        erow2_q <= crow2[cur_e[9:0]];
+        eval2_q <= cval2[cur_e[9:0]];
     end
+
+    wire [15:0] plo_q  = layer ? plo2_q  : plo1_q;
+    wire [15:0] phi_q  = layer ? phi2_q  : phi1_q;
+    wire [7:0]  erow_q = layer ? erow2_q : erow1_q;
+    wire [7:0]  eval_q = layer ? eval2_q : eval1_q;
 
     // ---------------- stage conditions ----------------
     wire        run         = (state == S_RUN);
@@ -236,14 +266,18 @@ module sparse_mlp_zs #(
 
     // ---------------- MAC stage (acc[row] += a * w) ----------------
     wire [5:0]          mrow = erow_q[5:0];
-    wire signed [31:0]  mold = touched[mrow] ? acc[mrow] : 32'sd0;
+    // One read port for the accumulators: the MAC stage uses it while a layer
+    // runs, the finish sweep afterwards (the MAC stage is empty by then).
+    wire [5:0]          acc_ra = (state == S_FIN) ? neuron[5:0] : mrow;
+    wire signed [31:0]  acc_rd = touched[acc_ra] ? acc[acc_ra] : 32'sd0;
+    wire signed [31:0]  mold = acc_rd;
     wire signed [8:0]   a_s  = {1'b0, a1};       // unsigned activation -> positive signed
     wire signed [7:0]   w_s  = eval_q;           // signed weight
     wire signed [16:0]  prod = a_s * w_s;
 
     // ---------------- finish sweep (one neuron per cycle) ----------------
     wire [5:0]          r6     = neuron[5:0];
-    wire signed [31:0]  acc_r  = touched[r6] ? acc[r6] : 32'sd0;
+    wire signed [31:0]  acc_r  = acc_rd;
     wire signed [31:0]  bias_r = layer ? bias2[neuron[3:0]] : bias1[r6];
     wire signed [31:0]  acc_b  = acc_r + bias_r;                      // add the bias
     wire signed [31:0]  relu   = acc_b[31] ? 32'sd0 : acc_b;          // ReLU

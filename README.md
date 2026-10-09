@@ -24,7 +24,8 @@ core (in simulation).
 | Dense reference in simulation (same engine, nothing skipped) | Done |
 | Bounded run time: hard cycle budget + constant-time mode (`SMAC.CFG`), budget-aware model | Done |
 | Accelerator loads the image itself (second bus master, `SMAC.RUNM`) | Done |
-| FPGA build | Planned |
+| Synthesis for a Lattice ECP5 FPGA (cell counts, cost of the budget and the loader) | Done |
+| Running on an FPGA board | Planned |
 
 See [docs/roadmap.md](docs/roadmap.md) for the detailed plan.
 
@@ -93,7 +94,7 @@ rv-sparsemac/
 │   └── learning/             small exercises used while learning
 ├── models/                   trained PyTorch weights (.pth)
 ├── firmware/                 C program for the RISC-V core + custom-instruction header
-├── scripts/                  write_results.py: writes the measured numbers into docs/results.md
+├── scripts/                  write_results.py, synth_report.py: write the measured numbers into docs/
 └── hardware/
     ├── rtl/                  Verilog design files
     ├── tb/                   Verilog testbenches
@@ -135,6 +136,9 @@ make sim-soc-budget  # same with the run-time budget set by the CPU (SMAC.CFG)
 make sim-zs-fashion  # the accelerator with the Fashion-MNIST model (same hardware)
 make sim-soc-fashion # PicoRV32 + accelerator with the Fashion-MNIST model
 make report       # run everything and write the numbers into docs/results.md
+
+# 5. Synthesis (needs: sudo apt install yosys)
+make synth        # cell counts for a Lattice ECP5, written to docs/synthesis.md
 ```
 
 The trained models are already in `models/` and the hex files are already in

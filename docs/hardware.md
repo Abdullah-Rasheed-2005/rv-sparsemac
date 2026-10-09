@@ -230,8 +230,9 @@ The testbench independently compares everything the firmware reports with
   and made loading slower, because the extra test per word costs more than the
   skipped instructions save. The real fix is for the accelerator to read the
   image from RAM itself: `SMAC.RUNM`, section 5.5.
-- These are simulation cycle counts of a design with simulation memories. They
-  are not FPGA timing and not energy.
+- These are simulation cycle counts, not FPGA timing and not energy. The design
+  synthesizes for a Lattice ECP5 with its memories in block RAM
+  ([synthesis.md](synthesis.md), `make synth`); it has not been run on a board.
 
 ### 5.5 The accelerator loads the image itself (`SMAC.RUNM`)
 

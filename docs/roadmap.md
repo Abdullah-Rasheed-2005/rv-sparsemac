@@ -21,7 +21,8 @@
 - [x] Study `picorv32_pcpi_mul` as a reference PCPI co-processor
 - [x] Wrap the accelerator as a PCPI module (`SMAC.LDW`, `SMAC.RUN`, `SMAC.LOGIT`, `SMAC.CYC`)
 - [x] Test program (C) that runs MNIST inference on the core (`firmware/main.c`)
-- [ ] Run the system on an FPGA (block RAM instead of `$readmemh`, UART output)
+- [x] Synthesis for a Lattice ECP5 (`make synth`, `docs/synthesis.md`): memories map to block RAM
+- [ ] Run the system on an FPGA board (UART output)
 - [x] Let the accelerator read the image from RAM itself (bus master, `SMAC.RUNM`) instead of `SMAC.LDW`
 
 ## Phase 3b - Bounded run time

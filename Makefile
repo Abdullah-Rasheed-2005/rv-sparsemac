@@ -2,7 +2,7 @@ SHELL := /bin/bash
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget sim-zs-fashion sim-soc-fashion fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget sim-zs-fashion sim-soc-fashion synth synth-timing fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
 
 help:
 	@echo "Targets:"
@@ -24,6 +24,8 @@ help:
 	@echo "  sim-zs-budget  bounded run time: hard layer-1 cycle budget and constant time (budget-aware model)"
 	@echo "  sim-soc-budget PicoRV32 + accelerator with the budget set by SMAC.CFG (budget-aware model)"
 	@echo "  sim-zs-fashion / sim-soc-fashion  the same two with the Fashion-MNIST model (same hardware)"
+	@echo "  synth       synthesize for a Lattice ECP5 FPGA and write docs/synthesis.md (needs yosys)"
+	@echo "  synth-timing  place and route for the clock frequency (needs nextpnr-ecp5), then update docs/synthesis.md"
 	@echo "  sim-dense   same engine as sim-mlp but fed every weight (measured dense baseline)"
 	@echo "  fw          compile the RISC-V firmware (needs gcc-riscv64-unknown-elf)"
 	@echo "  report      run all hardware/RISC-V simulations and write the numbers into docs/results.md"
@@ -182,6 +184,23 @@ report:
 
 clean:
 	rm -rf build
+
+# ---------------- synthesis (needs: sudo apt install yosys) ----------------
+# Three designs: the accelerator without / with the run-time budget, and the whole
+# co-processor (accelerator + custom instructions + image loader).
+ZS_RTL = hardware/rtl/sparse_mlp_zs.v
+synth:
+	mkdir -p build/synth
+	yosys -q -l build/synth/zs_nobudget.log -p "read_verilog hardware/synth/zs_nobudget.v $(ZS_RTL); synth_ecp5 -top zs_nobudget; tee -o build/synth/zs_nobudget.stat stat"
+	yosys -q -l build/synth/zs.log -p "read_verilog $(ZS_RTL); synth_ecp5 -top sparse_mlp_zs; tee -o build/synth/zs.stat stat"
+	yosys -q -l build/synth/full.log -p "read_verilog hardware/rtl/sparsemac_pcpi.v $(ZS_RTL); synth_ecp5 -top sparsemac_pcpi -json build/synth/full.json; tee -o build/synth/full.stat stat"
+	python3 scripts/synth_report.py
+
+# Place and route of the whole co-processor, for the maximum clock frequency.
+# Needs: sudo apt install nextpnr-ecp5. The 85F device is used only because its package has enough pins.
+synth-timing: synth
+	nextpnr-ecp5 --85k --package CABGA756 --speed 6 --json build/synth/full.json --freq 50 --timing-allow-fail 2>&1 | tee build/synth/timing.log
+	python3 scripts/synth_report.py
 
 sim-dense:
 	$(PY) software/export_dense_lists.py

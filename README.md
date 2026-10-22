@@ -139,6 +139,7 @@ make report       # run everything and write the numbers into docs/results.md
 
 # 5. Synthesis (needs: sudo apt install yosys)
 make synth        # cell counts for a Lattice ECP5, written to docs/synthesis.md
+make sim-gate     # the synthesized netlist runs the budget testbench (a few minutes)
 ```
 
 The trained models are already in `models/` and the hex files are already in

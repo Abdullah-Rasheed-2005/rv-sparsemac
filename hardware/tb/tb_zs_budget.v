@@ -17,12 +17,24 @@
 //         after exactly the same number of cycles, with the same results.
 //
 // Run from the repository root with `make sim-zs-budget`.
+// `make sim-gate` runs the same test on the synthesized netlist (-DGATE), with
+// fewer images (-DNIMG=5) and 4 instead of 16 random stress images, because a
+// gate-level simulation is much slower.
 `timescale 1ns/1ps
 `ifndef MEMDIR
   `define MEMDIR "build/budget_mem"
 `endif
+`ifndef NIMG
+  `define NIMG 100   // the gate-level run (make sim-gate) uses fewer images, it is slow
+`endif
+`ifdef GATE
+  `define NRAND 4    // random stress images (one of every density)
+`else
+  `define NRAND 16
+`endif
 module tb_zs_budget;
-    localparam NIMG  = 100;
+    localparam NIMG  = `NIMG;
+    localparam NCT   = (NIMG < 20) ? NIMG : 20;   // test images of the constant-time part
     localparam PAD   = 800;      // same value as the parameter of the accelerator
     localparam SLACK = 800;      // finish sweeps + all of layer 2 + pipeline start-up
 
@@ -38,7 +50,11 @@ module tb_zs_budget;
     wire signed [31:0] out_val;
     wire [3:0]  pred;
 
-    sparse_mlp_zs #(
+    // With -DGATE the design is the synthesized netlist (make sim-gate): its
+    // ROM contents and PAD are already built in, so it takes no parameters.
+    sparse_mlp_zs
+`ifndef GATE
+    #(
         .PAD       (PAD),
         .FC1_PTR   ({`MEMDIR, "/fc1_csc_ptr.hex"}),
         .FC1_ROW   ({`MEMDIR, "/fc1_csc_row.hex"}),
@@ -49,7 +65,9 @@ module tb_zs_budget;
         .FC2_VAL   ({`MEMDIR, "/fc2_csc_val.hex"}),
         .FC2_BIAS  ({`MEMDIR, "/fc2_bias.hex"}),
         .SHIFT_FILE({`MEMDIR, "/hidden_shift.hex"})
-    ) dut (
+    )
+`endif
+    dut (
         .clk(clk), .rst(rst), .start(start),
         .budget(budget), .const_time(const_time),
         .img_we(img_we), .img_waddr(img_waddr), .img_wdata(img_wdata),
@@ -62,9 +80,9 @@ module tb_zs_budget;
 
     // ---------------- data ----------------
     reg [7:0]  img_mem   [0:78399];
-    reg [31:0] gold_log  [0:NIMG*10-1];     // no budget
-    reg [31:0] gold_logb [0:NIMG*10-1];     // with the budget
-    reg [7:0]  gold_predb [0:NIMG-1];
+    reg [31:0] gold_log  [0:999];           // no budget (the files always hold 100 images)
+    reg [31:0] gold_logb [0:999];           // with the budget
+    reg [7:0]  gold_predb [0:99];
     reg [15:0] bud_mem   [0:0];
 
     reg [7:0]  w1m [0:50175];
@@ -269,7 +287,7 @@ module tb_zs_budget;
         load_and_run;  check_ref("pixel 0", B);   check_time("pixel 0");
         cur_img[0] = 8'd0;  cur_img[783] = 8'd1;
         load_and_run;  check_ref("pixel 783", B); check_time("pixel 783");
-        for (t = 0; t < 16; t = t + 1) begin
+        for (t = 0; t < `NRAND; t = t + 1) begin
             case (t % 4)
                 0: dens = 5;
                 1: dens = 20;
@@ -293,10 +311,10 @@ module tb_zs_budget;
         // =============== Part 4: constant time ===============
         budget = B[15:0]; const_time = 1'b1;
         ct_cyc = -1;
-        for (img = 0; img < 22; img = img + 1) begin
-            if (img < 20)
+        for (img = 0; img < NCT + 2; img = img + 1) begin
+            if (img < NCT)
                 for (p = 0; p < 784; p = p + 1) cur_img[p] = img_mem[img*784 + p];
-            else if (img == 20)
+            else if (img == NCT)
                 for (p = 0; p < 784; p = p + 1) cur_img[p] = 8'd0;
             else
                 for (p = 0; p < 784; p = p + 1) cur_img[p] = 8'd255;
@@ -310,7 +328,7 @@ module tb_zs_budget;
         end
         const_time = 1'b0;
         $display("--- constant time ---");
-        $display("every one of 22 images (20 test images, all zero, all 255): %0d cycles", ct_cyc);
+        $display("every one of %0d images (%0d test images, all zero, all 255): %0d cycles", NCT + 2, NCT, ct_cyc);
         if (ct_cyc != B + PAD + 1) $display("note: expected budget + PAD + 1 = %0d", B + PAD + 1);
 
         if (errors == 0 && stress_err == 0 && time_err == 0 && ct_err == 0)

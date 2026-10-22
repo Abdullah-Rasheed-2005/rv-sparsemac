@@ -336,6 +336,20 @@ about 0.1 point at most.
 | `make sim-zs-budget` | budget off: unchanged results. Budget on: 100 images bit-exact against golden values computed by `budget_lib.py`, every run below budget + 800 cycles, stress images (all zero, all 255, single pixels, random densities) against a reference model. Constant time: every image takes exactly the same number of cycles |
 | `make sim-pcpi` | `SMAC.CFG` handshake, two different images take the same `SMAC.CYC` in constant time, and results are back to normal after `SMAC.CFG 0` |
 | `make sim-soc-budget` | PicoRV32 sets the budget with `SMAC.CFG`; three passes over 100 images (no budget, budget, constant time) match the golden values |
+| `make sim-gate` | the same test as `sim-zs-budget` on the **netlist after synthesis** for the ECP5 (LUTs, flip-flops, block RAMs), with 5 golden images, 9 stress images and 7 constant-time runs: same logits, same cycle counts |
+
+**Gate-level simulation.** `make sim-gate` synthesizes the accelerator with the
+weights of the budget-aware model built in, writes the netlist and runs
+`tb_zs_budget.v` on it. It shows that synthesis did not change the behaviour: no
+simulation-only construct, no wrong block-RAM inference, no missing reset. The
+cycle counts are the same as in the RTL simulation (for example 1,356 and 5,898
+cycles for the all-255 image), because the netlist has the same registers.
+Two things are not covered: the netlist is built with `-nodsp` (the multiplier
+is made from LUTs, because Yosys has no simulation model of the ECP5 DSP block),
+and Yosys has no model of the block RAM either, so `hardware/synth/dp16kd_sim.v`
+is a model written for this test. A wrong model would give wrong logits, since
+all weights are read through it. There are no gate delays: this checks the
+logic, timing is checked by `make synth-timing`.
 
 The cycle-accurate behaviour was also modelled register by register in Python
 before the Verilog was written; the simulation reproduced that model's numbers.

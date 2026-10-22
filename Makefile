@@ -2,7 +2,7 @@ SHELL := /bin/bash
 # Run every command from the repository root.
 PY ?= venv/bin/python
 
-.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget sim-zs-fashion sim-soc-fashion synth synth-timing fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
+.PHONY: help venv train evaluate inspect sweep-both sweep-fc1 finetune export verify export-sparse sim-mac sim-sparse sim-mlp sim-zs sim-zs-edge sim-zs-budget sim-soc-budget sim-zs-fashion sim-soc-fashion synth synth-timing sim-gate fw sim-soc sim-soc-ws sim-pcpi sim-dense report clean
 
 help:
 	@echo "Targets:"
@@ -25,6 +25,7 @@ help:
 	@echo "  sim-soc-budget PicoRV32 + accelerator with the budget set by SMAC.CFG (budget-aware model)"
 	@echo "  sim-zs-fashion / sim-soc-fashion  the same two with the Fashion-MNIST model (same hardware)"
 	@echo "  synth       synthesize for a Lattice ECP5 FPGA and write docs/synthesis.md (needs yosys)"
+	@echo "  sim-gate    gate-level simulation: the synthesized ECP5 netlist runs tb_zs_budget (slow: a few minutes)"
 	@echo "  synth-timing  place and route for the clock frequency (needs nextpnr-ecp5), then update docs/synthesis.md"
 	@echo "  sim-dense   same engine as sim-mlp but fed every weight (measured dense baseline)"
 	@echo "  fw          compile the RISC-V firmware (needs gcc-riscv64-unknown-elf)"
@@ -201,6 +202,27 @@ synth:
 synth-timing: synth
 	nextpnr-ecp5 --85k --package CABGA756 --speed 6 --json build/synth/full.json --freq 50 --timing-allow-fail 2>&1 | tee build/synth/timing.log
 	python3 scripts/synth_report.py
+
+# Gate-level simulation: the netlist that synth_ecp5 makes from the accelerator runs the same
+# testbench as sim-zs-budget (all four parts), with GATE_NIMG golden images instead of 100 because it
+# is slow. The weights of the budget-aware model are built into the netlist (chparam).
+# -nodsp: the multiplier is built from LUTs, because Yosys has no simulation model of the ECP5 DSP.
+# Yosys has none of the block RAM (DP16KD) either: hardware/synth/dp16kd_sim.v is used instead.
+YOSYS_DAT ?= $(shell yosys-config --datdir 2>/dev/null || echo /usr/share/yosys)
+GATE_NIMG ?= 5
+GM = build/budget_mem
+GATE_PARAMS = -set FC1_PTR \"$(GM)/fc1_csc_ptr.hex\" -set FC1_ROW \"$(GM)/fc1_csc_row.hex\" \
+              -set FC1_VAL \"$(GM)/fc1_csc_val.hex\" -set FC1_BIAS \"$(GM)/fc1_bias.hex\" \
+              -set FC2_PTR \"$(GM)/fc2_csc_ptr.hex\" -set FC2_ROW \"$(GM)/fc2_csc_row.hex\" \
+              -set FC2_VAL \"$(GM)/fc2_csc_val.hex\" -set FC2_BIAS \"$(GM)/fc2_bias.hex\" \
+              -set SHIFT_FILE \"$(GM)/hidden_shift.hex\"
+sim-gate:
+	$(PY) software/export_budget.py $(BUDGET) $(BUDGET_SPARSITY)
+	mkdir -p build/gate
+	yosys -q -l build/gate/synth.log -p "read_verilog $(ZS_RTL); chparam $(GATE_PARAMS) sparse_mlp_zs; synth_ecp5 -top sparse_mlp_zs -nodsp; tee -o build/gate/zs_gate.stat stat; write_verilog -noattr build/gate/zs_gate.v"
+	sed '/^module DP16KD(/,/^endmodule/d' $(YOSYS_DAT)/ecp5/cells_sim.v > build/gate/cells_sim_nobram.v
+	iverilog -DGATE -DNIMG=$(GATE_NIMG) -I $(YOSYS_DAT)/ecp5 -o build/gate/sim_gate hardware/tb/tb_zs_budget.v build/gate/zs_gate.v build/gate/cells_sim_nobram.v hardware/synth/dp16kd_sim.v
+	vvp -n build/gate/sim_gate
 
 sim-dense:
 	$(PY) software/export_dense_lists.py

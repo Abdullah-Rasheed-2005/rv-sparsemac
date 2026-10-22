@@ -22,6 +22,7 @@
 - [x] Wrap the accelerator as a PCPI module (`SMAC.LDW`, `SMAC.RUN`, `SMAC.LOGIT`, `SMAC.CYC`)
 - [x] Test program (C) that runs MNIST inference on the core (`firmware/main.c`)
 - [x] Synthesis for a Lattice ECP5 (`make synth`, `docs/synthesis.md`): memories map to block RAM
+- [x] Gate-level simulation of the synthesized accelerator (`make sim-gate`)
 - [ ] Run the system on an FPGA board (UART output)
 - [x] Let the accelerator read the image from RAM itself (bus master, `SMAC.RUNM`) instead of `SMAC.LDW`
 

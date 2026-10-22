@@ -94,6 +94,7 @@ PASS: CPU + accelerator matched golden logits and predictions (100 images, 1000 
 | `rtl/sparse_mlp_zs.v` | accelerator, skips zero weights and zero activations |
 | `rtl/sparsemac_pcpi.v` | PCPI wrapper: the custom instructions `SMAC.LDW/RUN/LOGIT/CYC/CFG/RUNM` and the image loader (second bus master) |
 | `synth/zs_nobudget.v` | the accelerator with the budget tied off, only for `make synth` |
+| `synth/dp16kd_sim.v` | simulation model of the ECP5 block RAM, only for `make sim-gate` (Yosys ships none) |
 | `tb/tb_zs_budget.v` | run-time budget and constant time of the accelerator (`make sim-zs-budget`) |
 | `tb/tb_sparse_mlp_zs.v` | golden images + stress tests of the accelerator |
 | `tb/tb_sparsemac_pcpi.v` | PCPI wrapper tested without a CPU |
